@@ -1,16 +1,39 @@
 # maya-mcp-server
 
-MCP server for interacting with Autodesk Maya sessions.
+MCP server for interacting with Autodesk Maya sessions with **spatial awareness**, **camera planning**, **aesthetic analysis**, and **scene auditing**.
 
 ## Features
 
-- **Multi-session support**: Manage multiple Maya sessions from a single MCP server. The server scans for new Maya sessions that have been started and shutdown by the user.
-- **Full Python expressiveness**: Execute arbitrary Python code. Agents can create virtual python modules to expose functions for execution, including by the user.
-- **Streaming output**: Capture stdout/stderr from Maya sessions via MCP resources. Agents can monitor output from their code or user activity.
-- **Simple Maya-side setup**: No modules to install in Maya: leverages Maya's command port to bootstrap itself.
-- **Easy installation**: Install and run via `uvx maya-mcp-server`
+### Core
+- **Multi-session support**: Manage multiple Maya sessions from a single MCP server
+- **Full Python expressiveness**: Execute arbitrary Python code in Maya
+- **Streaming output**: Capture stdout/stderr via MCP resources
+- **Simple setup**: No Maya modules to install — uses command port bootstrapping
+- **Easy installation**: `uvx maya-mcp-server`
 
-![screen_recording_4x.gif](screen_recording_4x.gif)
+### Spatial Awareness (NEW)
+- **`scene_snapshot`**: Full scene spatial overview with CoS notation (65% token savings)
+- **`scene_inspect`**: Deep inspection of objects/zones with neighbor analysis
+- **`scene_measure`**: Precise distance measurement (center/surface/clearance/bbox)
+- **`scene_assert`**: Verify scene state matches expectations
+
+### Scene Auditing (NEW)
+- **`scene_review`**: Universal 9-dimension audit (0-100 score)
+  - Spatial integrity, overlap detection, spatial conflicts, zone coverage
+  - Naming conventions, componentization, aesthetics, constraints, orphans
+
+### Camera & Animation (NEW)
+- **`camera_create`**: Create cameras with industry-standard shot types (wide/medium/close/bird_eye/etc.)
+- **`camera_orbit`**: Create orbiting cameras with keyframe animation
+
+### Safety & Recovery (NEW)
+- **`scene_checkpoint`**: Save scene checkpoints before risky operations
+- **`scene_checkpoint_list`**: List all saved checkpoints
+- **`scene_rollback`**: Rollback to any checkpoint (auto-backup before rollback)
+- **`scene_validate`**: Validate spatial constraints (min_clearance/max_objects/no_overlap)
+
+### Aesthetic Analysis (NEW)
+- **`scene_aesthetics`**: Color harmony, spatial balance, focal point analysis
 
 ## Installation
 
@@ -18,107 +41,144 @@ MCP server for interacting with Autodesk Maya sessions.
 # Using uvx (recommended)
 uvx maya-mcp-server
 
-# Or install with pip
+# Or pip install
 pip install maya-mcp-server
+```
+
+## Configuration
+
+Add to your MCP client config (e.g., Codex `~/.codex/config.toml`):
+
+```toml
+[mcp_servers.maya_mcp]
+command = "python"
+args = ["-m", "maya_mcp_server"]
+tool_timeout_sec = 120
+
+[mcp_servers.maya_mcp.env]
+PYTHONPATH = "/path/to/maya-mcp-server/src"
 ```
 
 ## Usage
 
-### Claude Code Configuration
+### ICEV Workflow (Recommended)
 
-Add to your Claude Code MCP configuration, run:
+Every scene modification follows the **ICEV** cycle:
 
-```commandline
-claude mcp add --transport stdio maya -- uvx maya-mcp-server
+1. **INSPECT**: `scene_snapshot()` → understand current state
+2. **COMPUTE**: Use spatial data to calculate changes
+3. **EXECUTE**: `execute_code()` → apply changes
+4. **VERIFY**: `scene_assert()` + `scene_review()` → confirm results
+
+### Example: Create and Verify
+
+```
+# 1. Get scene overview
+scene_snapshot(detail="compact", format="cos")
+
+# 2. Create objects
+execute_code("import maya.cmds as cmds; cmds.polyCube(name='wall', w=300, h=200, d=10)")
+
+# 3. Verify result
+scene_assert(expectations='{"wall": {"exists": true}}')
+
+# 4. Full audit
+scene_review()
 ```
 
-The default scope is "local", which adds it to your `~/.claude.json` keyed to a particular project directory.  Setting `--scope=user` adds to `~/.claude.json` across all projects, and `--scope=project` to add the configuration into a `.mcp.json` in the current project directory, so that it can be commited to your repo.
+### Example: Camera Planning
 
-For local development use: 
-```commandline
-claude mcp add --transport stdio maya -- uv run --directory /path/to/maya-mcp-server/ maya-mcp-server
+```
+# Create a wide establishing shot
+camera_create(target="store_entrance", shot_type="wide", azimuth=30, elevation=15)
+
+# Create orbiting camera for product showcase
+camera_orbit(center=[0, 100, 0], radius=500, frames=120, name="product_orbit")
 ```
 
-### Maya Setup
+### Example: Safety Workflow
 
-The server automatically discovers Maya sessions via command ports. To enable a Python command port in Maya:
+```
+# Before risky operation
+scene_checkpoint(name="before_renovation")
 
-```python
-import maya.cmds as cmds
-cmds.commandPort(name=":7002", sourceType="python")
+# Make changes...
+
+# Verify
+scene_review()
+# If issues found:
+scene_rollback(filename="cp_20260628_120000_before_renovation.ma")
 ```
 
-Or add to your `userSetup.py` for automatic startup.
-
-## Tools
-
-Tools accept an optional `session_key` parameter for targeting specific sessions.
-If only one Maya session exists, it will be auto-selected.
-Session keys are returned by `list_sessions` and `add_session`.
+## MCP Tools Reference
 
 | Tool | Description |
 |------|-------------|
-| `list_sessions` | List all active Maya sessions. Returns session info including `session_key` for use with other tools/resources. |
-| `add_session` | Manually add a Maya session at a specific host:port. Use when auto-discovery doesn't find your session. |
-| `write_module` | Create a virtual Python module in Maya. Useful for defining reusable functions. |
-| `execute_code` | Execute Python code in a session. Supports result capture modes: `NONE`, `JSON`, `RAW`. |
+| `list_sessions` | List active Maya sessions |
+| `write_module` | Create virtual Python modules in Maya |
+| `execute_code` | Execute Python code in Maya |
+| `scene_snapshot` | Full scene spatial overview |
+| `scene_inspect` | Deep inspection of object/zone |
+| `scene_measure` | Distance measurement (4 modes) |
+| `scene_assert` | Verify scene state |
+| `scene_review` | Universal 9-dimension audit |
+| `scene_validate` | Spatial constraint validation |
+| `scene_checkpoint` | Save scene checkpoint |
+| `scene_checkpoint_list` | List checkpoints |
+| `scene_rollback` | Rollback to checkpoint |
+| `camera_create` | Create camera with shot type |
+| `camera_orbit` | Create orbiting camera |
+| `scene_aesthetics` | Aesthetic analysis |
 
-## Resources
+## Architecture
 
-| Resource | Description |
-|----------|-------------|
-| `maya://sessions/{session_key}/info` | Session information (pid, user, maya_version, scene_name, scene_path) |
-| `maya://sessions/{session_key}/output` | Captured stdout/stderr output from the session |
-
-## Similar tools
-
-### [MayaMCP](https://github.com/PatrickPalmer/MayaMCP/)
-
-This looks to be the first publicly available MCP server for Maya and I was inspired by a few aspects of this tool, especially the goal of zero Maya-side setup.
-
-Disadvantages:
-* The MCP server is bound to a single Maya session running on the default port.
-* It is limited to a bespoke set of tools.  This could be seen as a security advantage, but it cripples the ability of an agent to do just about anything.
-* No support for reading stdout or stderr, so the agent is blind to what's happening in the Maya session.
-* Less robust approach to capturing command output (e.g. does not check if code is indented within a `for` loop or function)
-* Can't run via `uvx`, or `pip install` from pypi.
-
-### [ChatGPT4Maya](https://github.com/thejoltjoker/ChatGPTforMaya)
-
-This is the original LLM integration for Maya, which embeds ChatGPT directly in a PySide window and enables the LLM to respond to user commands and queries by executing code in the session.
-
-Disadvantages:
-* Not an MCP server, so it cannot take full advantage of agentic workflows.
-* Only works with ChatGPT.
-
-### [Jupyter MCP Server](https://jupyter-mcp-server.datalayer.tech/)
-
-This provided an interesting reference for how to create an MCP server in python that works with multiple remote sessions (in this case, notebooks) to execute arbitrary code.
+```
+┌─────────────────────────────────────────────┐
+│              LLM Agent (Codex)               │
+│                                              │
+│  scene_snapshot() → complete spatial model   │
+│  scene_review() → 9-dimension audit score    │
+│  camera_create() → industry-standard shots   │
+└──────────┬───────────────────────────────────┘
+           │ MCP Tools (15 tools)
+┌──────────▼───────────────────────────────────┐
+│         MCP Server Layer                      │
+│                                               │
+│  scene_tools.py → 15 MCP tool definitions     │
+│  scene_cache.py → TTL + dirty detection       │
+│  cos_formatter.py → CoS notation (65% saving) │
+│  security.py → input validation + rate limit  │
+└──────────┬───────────────────────────────────┘
+           │ execute_code("import _mcp_scene; ...")
+┌──────────▼───────────────────────────────────┐
+│         Maya Side (_mcp_scene module)          │
+│                                               │
+│  get_scene_graph() → BBox + Transform + tree  │
+│  get_zone_map() → functional zone grouping    │
+│  get_spatial_index() → neighbor relationships │
+│  measure() → precise distance measurement     │
+│  scene_review() → 9-dimension audit           │
+│  analyze_aesthetics() → color/balance/focal   │
+└───────────────────────────────────────────────┘
+```
 
 ## Development
 
 ```bash
 # Install dev dependencies
-uv sync --dev
+pip install -e ".[dev]"
 
 # Run tests
-uv run pytest
+python -m pytest tests/ -q
 
-# Run the server
-uv run maya-mcp-server
+# Run with debug logging
+LOGLEVEL=DEBUG python -m maya_mcp_server
 ```
+
+## Credits
+
+Based on [chadrik/maya-mcp-server](https://github.com/chadrik/maya-mcp-server) with spatial awareness, camera planning, aesthetic analysis, and scene auditing extensions.
 
 ## License
 
 MIT
-
-## TODO
-
-- [ ] Provide an option to `execute` to run in global or private context.
-- [ ] Yield output as it's printed?
-- [ ] Add tools to simplify interaction with UI: shelves, hotkeys, menus
-- [ ] Plugins to extend session info, e.g. with custom pipeline info
-- [ ] Investigate RPC for extensibility, implementation of custom tools
-- [ ] Use a dispatch function for command port mode, to further harmonize. Create a shared type safe collection of tools that hold name and arguments. 
-- [ ] Return stdout and stderr lines interleaved (and prefixed with `STDOUT:` `STDERR:`) so that the agent can determine order?
-- [ ] Cleanup command ports when complete.  This won't be necessary if we default to the Qt command server. 

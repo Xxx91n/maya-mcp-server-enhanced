@@ -21,8 +21,8 @@ classifiers = [
     "Topic :: Multimedia :: Graphics :: 3D Modeling",
 ]
 dependencies = [
-    "fastmcp>=2.0.0,<3.0.0",
-    "psutil",
+    "fastmcp>=2.14.0,<3.0.0",
+    "psutil>=5.9.0",
 ]
 
 [project.optional-dependencies]

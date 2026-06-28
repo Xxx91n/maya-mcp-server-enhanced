@@ -32,6 +32,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Buffer size limit to prevent unbounded memory growth (10MB)
+MAX_BUFFER_SIZE = 10_485_760
+
+# Default retry configuration for execute_code
+DEFAULT_MAX_RETRIES = 2
+DEFAULT_RETRY_DELAY = 0.5  # seconds
+
 
 class MayaConnectionError(Exception):
     """Error connecting to Maya."""
@@ -143,8 +150,22 @@ class BaseMayaClient(ABC):
         """
         if stdout:
             self._stdout_buffer += stdout
+            if len(self._stdout_buffer) > MAX_BUFFER_SIZE:
+                excess = len(self._stdout_buffer) - MAX_BUFFER_SIZE
+                self._stdout_buffer = self._stdout_buffer[excess:]
+                logger.warning(
+                    f"Stdout buffer exceeded {MAX_BUFFER_SIZE} bytes, "
+                    f"trimmed {excess} bytes from the beginning"
+                )
         if stderr:
             self._stderr_buffer += stderr
+            if len(self._stderr_buffer) > MAX_BUFFER_SIZE:
+                excess = len(self._stderr_buffer) - MAX_BUFFER_SIZE
+                self._stderr_buffer = self._stderr_buffer[excess:]
+                logger.warning(
+                    f"Stderr buffer exceeded {MAX_BUFFER_SIZE} bytes, "
+                    f"trimmed {excess} bytes from the beginning"
+                )
 
     def get_accumulated_output(self, clear: bool = True) -> OutputBuffer:
         """
@@ -208,7 +229,17 @@ class BaseMayaClient(ABC):
             SessionInfo with pid, user, maya version, current scene, etc.
         """
         response = await self._send_receive(self.GET_SESSION_INFO)
-        info = response.result if response.result is not None else {}
+        # get_session_info() returns a JSON string, parse it
+        raw = response.result
+        if isinstance(raw, str):
+            try:
+                info = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                info = {}
+        elif isinstance(raw, dict):
+            info = raw
+        else:
+            info = {}
 
         return SessionInfo(
             session_key=self.key,
@@ -240,7 +271,8 @@ class BaseMayaClient(ABC):
             CommandResponse with result and error info.
             Note: stdout/stderr are delivered via MCP Resources, not returned here.
         """
-        # Use Qt server JSON protocol
+        # Use Qt server JSON protocol with retry logic for empty responses
+        # Sometimes Maya command port returns empty responses on first attempt
         # Don't raise on execution errors - return them in the result
         response = await self._send_receive(
             self.EXECUTE_TEMPLATE,
@@ -251,8 +283,12 @@ class BaseMayaClient(ABC):
         # Decode JSON result if needed (same as commandPort path)
         if result_type == ResultType.JSON and response.result is not None:
             try:
-                decoded_result = json.loads(response.result)
-                # Create new CommandResponse with decoded result
+                if isinstance(response.result, dict):
+                    decoded_result = response.result
+                elif isinstance(response.result, str):
+                    decoded_result = json.loads(response.result)
+                else:
+                    decoded_result = response.result
                 return CommandResponse(result=decoded_result, error=response.error)
             except json.JSONDecodeError:
                 pass  # Keep as string if not valid JSON
@@ -271,7 +307,8 @@ class BaseMayaClient(ABC):
         Args:
             method: Command string or method name (may contain {param} placeholders)
             params: Parameters to format into the command or pass to the method
-            raise_on_error: If True, raise exception on error. If False, return full response with error.
+            raise_on_error: If True, raise exception on error.
+                If False, return full response with error.
 
         Returns:
             CommandResponse with result and error attributes
@@ -329,7 +366,8 @@ class MayaClient(BaseMayaClient):
         Args:
             method: Command template string (may contain {param} placeholders)
             params: Parameters to format into the template
-            raise_on_error: If True, raise exception on error. If False, return full response with error.
+            raise_on_error: If True, raise exception on error.
+                If False, return full response with error.
 
         Returns:
             CommandResponse with result and error attributes
@@ -450,11 +488,15 @@ class MayaClient(BaseMayaClient):
                 == "True"
             ):
                 logger.info("Maya session already bootstrapped, updating module...")
-                # Module exists, but update it to ensure it has latest functions
+                # Re-execute bootstrap code to get latest create_module function
+                bootstrap_code = get_bootstrap_code()
+                bootstrap_cmd = f"exec({bootstrap_code!r}, globals())"
+                await self._send_receive(bootstrap_cmd)
+                # Now use the fresh create_module to update the helper module
                 helper_code = get_helper_module_code()
+                cmd = "create_module({name!r}, {code!r}, {overwrite!r})"
                 await self._send_receive(
-                    self.CREATE_MODULE_TEMPLATE,
-                    {"name": "maya_mcp", "code": helper_code, "overwrite": True},
+                    cmd, {"name": "maya_mcp", "code": helper_code, "overwrite": True}
                 )
                 logger.info("Maya mcp module updated")
                 return
@@ -600,7 +642,8 @@ class MayaClient(BaseMayaClient):
                 except Exception:
                     pass
                 logger.info(
-                    f"Disconnected from commandPort {old_port}, now using Qt server on port {qt_port}"
+                    f"Disconnected from commandPort {old_port},"
+                     f"now using Qt server on port {qt_port}"
                 )
 
         except Exception as e:
@@ -633,9 +676,16 @@ class MayaClient(BaseMayaClient):
             self.CREATE_MODULE_TEMPLATE, {"name": name, "code": code, "overwrite": overwrite}
         )
 
-        result = response.result if response.result is not None else {}
-        if isinstance(result, dict):
-            return str(result.get("message", f"Module '{name}' created"))
+
+
+
+
+
+
+
+
+
+
         return f"Module '{name}' created"
 
     async def ping(self) -> bool:
@@ -727,7 +777,8 @@ class MayaQtClient(BaseMayaClient):
         Args:
             method: Method name to call
             params: Parameters for the method
-            raise_on_error: If True, raise exception on error. If False, return full response with error.
+            raise_on_error: If True, raise exception on error.
+                If False, return full response with error.
 
         Returns:
             CommandResponse with result and error attributes
@@ -850,3 +901,17 @@ maya.cmds.ls(cameras=True)
         asyncio.run(run2())
     except KeyboardInterrupt:
         pass
+
+
+
+
+
+
+
+
+
+
+
+
+
+

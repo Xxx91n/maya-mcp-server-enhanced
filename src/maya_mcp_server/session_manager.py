@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from maya_mcp_server.client import BaseMayaClient, MayaClient, MayaConnectionError
 from maya_mcp_server.types import (
@@ -90,15 +91,25 @@ class SessionManager:
 
     async def _background_scan(self) -> None:
         """Periodically scan for new sessions and prune dead ones."""
+        consecutive_errors = 0
+        max_backoff = 60.0
+
         while self._running:
             try:
                 await asyncio.sleep(self.scan_interval)
                 await self._scan_for_sessions()
                 await self._prune_dead_sessions()
+                consecutive_errors = 0
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in background scan: {e}")
+                consecutive_errors += 1
+                backoff = min(self.scan_interval * (2 ** consecutive_errors), max_backoff)
+                logger.error(
+                    f"Error in background scan (attempt {consecutive_errors}): {e}. "
+                    f"Backing off {backoff:.1f}s"
+                )
+                await asyncio.sleep(backoff)
 
     async def _scan_for_sessions(self) -> None:
         """Scan for Maya sessions using actual listening ports.
@@ -167,7 +178,8 @@ class SessionManager:
             try:
                 if not await client.ping():
                     dead_keys.append(key)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Session {key} appears dead: {e}")
                 dead_keys.append(key)
 
         for session_key in dead_keys:
@@ -303,6 +315,49 @@ class SessionManager:
         return client
 
 
+
+    async def check_session_health(self, session_key: str) -> bool:
+        """Check if a specific session is still responsive.
+
+        Args:
+            session_key: Session key to check
+
+        Returns:
+            True if session responds to ping, False otherwise
+        """
+        client = self._sessions.get(session_key)
+        if client is None:
+            return False
+        try:
+            return await client.ping()
+        except Exception as e:
+            logger.debug(f"Health check failed for {session_key}: {e}")
+            return False
+
+    async def get_session_stats(self) -> dict[str, Any]:
+        """Get statistics about current sessions.
+
+        Returns:
+            Dict with session count, health status, and uptime info
+        """
+        healthy = 0
+        unhealthy = 0
+        for key, client in self._sessions.items():
+            try:
+                if await client.ping():
+                    healthy += 1
+                else:
+                    unhealthy += 1
+            except Exception:
+                unhealthy += 1
+        return {
+            "total_sessions": len(self._sessions),
+            "healthy": healthy,
+            "unhealthy": unhealthy,
+            "scan_interval": self.scan_interval,
+            "client_type": self.client_type.value,
+        }
+
 if __name__ == "__main__":
     cmd = """
 import maya.cmds
@@ -323,3 +378,5 @@ maya.cmds.ls(cameras=True)
         asyncio.run(run())
     except KeyboardInterrupt:
         pass
+
+

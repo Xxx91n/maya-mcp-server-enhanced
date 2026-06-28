@@ -15,21 +15,50 @@ def create_module(name: str, code: str, overwrite: bool = False) -> str:
     import types
 
     parts = name.split(".")
+
+    # Validate module name components
+    for part in parts:
+        if not part.isidentifier():
+            return json.dumps({
+                "error": f"Invalid module name component '{part}' in '{name}'"
+            })
+
+    # Create parent packages as needed
     for i in range(len(parts) - 1):
         parent_name = ".".join(parts[: i + 1])
         if parent_name not in sys.modules:
             parent_mod = types.ModuleType(parent_name)
             setattr(parent_mod, "__path__", [])  # Package marker
             sys.modules[parent_name] = parent_mod
+        else:
+            # Ensure existing parent is marked as a package
+            parent_mod = sys.modules[parent_name]
+            if not hasattr(parent_mod, "__path__"):
+                setattr(parent_mod, "__path__", [])
 
     if name in sys.modules and not overwrite:
         return json.dumps({"error": f"Module '{name}' already exists. Use overwrite=True."})
+
     module = types.ModuleType(name)
     module.__file__ = f"<mcp:{name}>"
     compiled = compile(code, module.__file__, "exec")
-    exec(compiled, module.__dict__)
+    try:
+        # Execute in module namespace (standard initialization)
+        exec(compiled, module.__dict__)
+    except Exception as e:
+        return json.dumps({
+            "error": f"Failed to compile/execute module '{name}': {type(e).__name__}: {e}"
+        })
     sys.modules[name] = module
-    if len(parts) > 1:
-        parent = sys.modules[".".join(parts[:-1])]
-        setattr(parent, parts[-1], module)
+
+    # Walk up the tree and ensure each parent references its child.
+    # This handles both fresh parents (missing child attr) and stale
+    # references from previous create_module calls.
+    for i in range(len(parts) - 1, 0, -1):
+        parent_name = ".".join(parts[:i])
+        child_name = ".".join(parts[:i + 1])
+        if parent_name in sys.modules:
+            setattr(sys.modules[parent_name], parts[i], sys.modules[child_name])
+
     return json.dumps({"success": True, "message": f"Module '{name}' created"})
+

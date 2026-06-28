@@ -31,6 +31,9 @@ except ImportError:
 
 CAPTURE_VARIABLE = "_mcp_result"
 
+# StreamWriter buffer size limit (5MB) to prevent memory exhaustion
+_MAX_STREAM_BUFFER_SIZE = 5_242_880
+
 
 def prepare_code_for_result_capture(
     code: str, capture_variable: str = CAPTURE_VARIABLE
@@ -175,7 +178,13 @@ def execute(code: str, result_type: str = "NONE") -> str:
     """Execute code and return result as JSON."""
     result = None
     error = None
-    context = globals()
+    # Use controlled namespace instead of globals() for security
+    import sys
+    context = {"__builtins__": __builtins__, "__name__": "__mcp_exec__", "__doc__": None}
+    for mod_name in list(sys.modules.keys()):
+        if mod_name.startswith(("maya", "mcp", "_mcp")):
+            context[mod_name] = sys.modules[mod_name]
+    context[CAPTURE_VARIABLE] = None
     try:
         modified_code, was_modified = prepare_code_for_result_capture(code)
         if result_type != "NONE" and was_modified is False:
@@ -382,7 +391,8 @@ class QtCommandServer:
                 return {"id": req_id, "result": json.loads(result_str), "error": None}
 
             elif method == "create_module":
-                # Import create_module from maya_bootstrap
+                # create_module is defined in maya_bootstrap.py which is
+                # exec'd into Maya's global namespace, so it's available via globals()
                 create_module_func = globals().get("create_module")
                 if create_module_func is None:
                     return {
@@ -460,3 +470,4 @@ def get_qt_server_port() -> str:
     if _qt_server is None:
         return json.dumps({"error": "Server not running"})
     return json.dumps({"port": _qt_server.port})
+

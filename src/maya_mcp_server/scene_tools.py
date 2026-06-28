@@ -1,0 +1,777 @@
+"""MCP scene tools for spatial awareness.
+
+Provides 4 high-level tools following the snapshot → inspect → measure → assert pattern.
+Each tool auto-injects the _mcp_scene module into Maya on first call.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+from maya_mcp_server.cos_formatter import (
+    format_assert_cos,
+    format_inspect_cos,
+    format_measure_cos,
+    format_scene_cos,
+    format_zone_map_cos,
+)
+from maya_mcp_server.scene_cache import SceneCache
+
+
+logger = logging.getLogger(__name__)
+
+# Module source path for _mcp_scene
+_MODULE_SOURCE = Path(__file__).parent / "maya_scene_module.py"
+
+# Global cache per session (keyed by session_key)
+_caches: dict[str, SceneCache] = {}
+
+# Track which sessions have the module injected
+_injected_sessions: set[str] = set()
+
+
+def _get_cache(session_key: str | None) -> SceneCache:
+    """Get or create cache for a session."""
+    key = session_key or "_default"
+    if key not in _caches:
+        _caches[key] = SceneCache(ttl_seconds=5.0)
+    return _caches[key]
+
+
+def mark_dirty(session_key: str | None = None) -> None:
+    """Mark cache as dirty after scene modification.
+
+    Call this from session_manager after execute_code/write_module.
+    """
+    key = session_key or "_default"
+    if key in _caches:
+        _caches[key].mark_dirty()
+
+
+async def _ensure_module_injected(client: Any, session_key: str | None) -> None:
+    """Ensure _mcp_scene module is injected into Maya session.
+
+    Reads the module source from disk and writes it via write_module.
+    Only injects once per session.
+    """
+    key = session_key or "_default"
+    if key in _injected_sessions:
+        return
+
+    # Read module source
+    source = _MODULE_SOURCE.read_text(encoding="utf-8")
+
+    # For large modules, use chunked file-based injection to avoid command port buffer issues.
+    # The native command port produces stale responses when code >~20K chars is sent.
+    if len(source) > 15000:
+        import tempfile as _tf, os as _os
+        _ResultType = __import__("maya_mcp_server.types", fromlist=["ResultType"]).ResultType
+        # Write source to temp file on the CLIENT side, then read it from Maya
+        _tmp = _os.path.join(_tf.gettempdir(), "_mcp_scene_src.py")
+        with open(_tmp, "w", encoding="utf-8") as f:
+            f.write(source)
+        # In Maya: read the file, compile, exec, register as module
+        # The temp file is accessible from both sides since they're on the same machine
+        _tmp_safe = _tmp.replace("\\", "/")
+        await client.execute_code(
+            f"import types, sys; _c=open('{_tmp_safe}').read(); _m=types.ModuleType('_mcp_scene'); _m.__file__='<mcp:_mcp_scene>'; exec(compile(_c,'_mcp_scene.py','exec'),_m.__dict__); sys.modules['_mcp_scene']=_m",
+            _ResultType.NONE,
+        )
+    else:
+        await client.write_module("_mcp_scene", source, overwrite=True)
+    # Pre-import the module so subsequent calls use expression-only syntax
+    await client.execute_code("import _mcp_scene", __import__("maya_mcp_server.types", fromlist=["ResultType"]).ResultType.NONE)
+    _injected_sessions.add(key)
+    logger.info(f"Injected _mcp_scene module into session {key}")
+
+
+async def _execute_scene_code(
+    client: Any,
+    code: str,
+    session_key: str | None,
+    use_cache: bool = True,
+    cache_key: str | None = None,
+) -> Any:
+    """Execute scene query code with optional caching.
+
+    Args:
+        client: MayaClient instance.
+        code: Python code to execute.
+        session_key: Session key for cache lookup.
+        use_cache: Whether to use cache.
+        cache_key: Cache key for this query.
+
+    Returns:
+        Parsed result.
+    """
+    cache = _get_cache(session_key)
+
+    async def fetch():
+        result = await client.execute_code(code, result_type="JSON")
+        return result.result
+
+    if use_cache and cache_key:
+        data = await cache.get_or_fetch(cache_key, fetch)
+    else:
+        data = await fetch()
+
+    # Parse JSON if string
+    if isinstance(data, str):
+        return json.loads(data)
+    return data
+
+
+# --- Token Budget Management ---
+
+class TokenBudget:
+    """Auto-adjust detail level based on scene size."""
+
+    BUDGETS = {
+        "small": {"max_tokens": 2000, "detail": "compact", "max_objects": 50},
+        "medium": {"max_tokens": 5000, "detail": "compact", "max_objects": 200},
+        "large": {"max_tokens": 10000, "detail": "summary", "max_objects": 500},
+        "huge": {"max_tokens": 15000, "detail": "hierarchy_only", "max_objects": 1000},
+    }
+
+    @staticmethod
+    def auto_select_level(object_count: int) -> str:
+        if object_count <= 50:
+            return "small"
+        if object_count <= 200:
+            return "medium"
+        if object_count <= 500:
+            return "large"
+        return "huge"
+
+    @staticmethod
+    def estimate_tokens(text: str) -> int:
+        """Rough token estimate: ~4 chars per token."""
+        return len(text) // 4
+
+
+# --- MCP Tool Registration ---
+
+def register_scene_tools(mcp: Any) -> None:
+    """Register scene tools on the FastMCP instance.
+
+    Args:
+        mcp: FastMCP server instance.
+    """
+
+    @mcp.tool
+    async def scene_snapshot(
+        detail: str = "compact",
+        format: str = "cos",
+        session_key: str | None = None,
+    ) -> str:
+        """Get a complete spatial overview of the current Maya scene.
+
+        Returns a structured description of ALL objects with positions, sizes, and types.
+        Call this once at the start of each workflow to establish spatial awareness.
+
+        Args:
+            detail: Detail level - "compact" (fast),
+                "standard" (+materials/mesh stats), "full" (+vertices).
+            format: Output format - "cos" (Chain-of-Symbol, compact), "json" (full JSON).
+            session_key: Maya session key (auto-selected if only one session).
+
+        Returns:
+            CoS-formatted scene description (default) or JSON.
+
+        Performance: 100 objects < 50ms, 1000 objects < 200ms.
+
+        Example:
+            scene_snapshot() → SCENE[100obj, 3zones] UNIT=cm UP=y\\nENTRANCE: ...
+            scene_snapshot(detail="standard", format="json") → {"objects": [...]}
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+
+        # Ensure module is injected
+        await _ensure_module_injected(client, session_key)
+
+        # Get scene graph
+        scene_data = await _execute_scene_code(
+            client,
+            f"_mcp_scene.get_scene_graph('{detail}')",
+            session_key,
+            use_cache=True,
+            cache_key=f"scene_graph_{detail}",
+        )
+
+        # Also get zone map
+        zone_data = await _execute_scene_code(
+            client,
+            "_mcp_scene.get_zone_map()",
+            session_key,
+            use_cache=True,
+            cache_key="zone_map",
+        )
+
+        # Auto-adjust token budget
+        obj_count = scene_data.get("stats", {}).get("total", 0)
+        budget_level = TokenBudget.auto_select_level(obj_count)
+        budget = TokenBudget.BUDGETS[budget_level]
+        max_objects = budget["max_objects"]
+
+        if format == "json":
+            result = {
+                "scene": scene_data,
+                "zones": zone_data.get("zones", []),
+                "budget": budget_level,
+                "object_count": obj_count,
+            }
+            output = json.dumps(result, indent=2)
+        else:
+            output = format_scene_cos(
+                scene_data,
+                zones=zone_data.get("zones", []),
+                max_objects=max_objects,
+            )
+
+        return output
+
+    @mcp.tool
+    async def scene_inspect(
+        target: str,
+        include_neighbors: bool = True,
+        format: str = "cos",
+        session_key: str | None = None,
+    ) -> str:
+        """Deep inspection of a specific object or zone.
+
+        Returns detailed properties including transform, BBox, material, mesh stats,
+        and optionally nearby objects with distances.
+
+        Args:
+            target: Object name or zone name to inspect.
+            include_neighbors: Whether to include nearby objects (default True).
+            format: Output format - "cos" or "json".
+            session_key: Maya session key.
+
+        Returns:
+            Detailed inspection in CoS or JSON format.
+
+        Example:
+            scene_inspect("wall_north") → INSPECT: wall_north[mesh]@(0,0,500) ...
+            scene_inspect("entrance", include_neighbors=True) → zone details + neighbors
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+
+        # Ensure module is injected
+        await _ensure_module_injected(client, session_key)
+
+        # First try as a zone name
+        zone_data = await _execute_scene_code(
+            client,
+            "_mcp_scene.get_zone_map()",
+            session_key,
+            use_cache=True,
+            cache_key="zone_map",
+        )
+
+        zones = zone_data.get("zones", [])
+        matched_zone = None
+        for zone in zones:
+            if zone.get("name", "").lower() == target.lower():
+                matched_zone = zone
+                break
+
+        if matched_zone:
+            # Zone inspection
+            if format == "json":
+                return json.dumps({"zone": matched_zone}, indent=2)
+            else:
+                return format_zone_map_cos([matched_zone])
+
+        # Object inspection
+        code = f"""import _mcp_scene, json
+result = {{}}
+try:
+    import maya.cmds as cmds
+    import maya.api.OpenMaya as om2
+
+    sel = om2.MSelectionList()
+    sel.add("{target}")
+    dag = sel.getDagPath(0)
+    fn = om2.MFnDagNode(dag)
+    bbox = fn.boundingBox
+    world = dag.inclusiveMatrix()
+
+    result = {{
+        "name": fn.name(),
+        "type": _mcp_scene._classify_node(dag),
+        "position": _mcp_scene._matrix_to_pos(world),
+        "bbox": {{
+            "min": _mcp_scene._vec3_to_list(bbox.min),
+            "max": _mcp_scene._vec3_to_list(bbox.max),
+        }},
+        "size": _mcp_scene._get_bbox_size(bbox),
+        "material": _mcp_scene._get_material_for_dag(dag),
+        "unit": cmds.currentUnit(query=True, linear=True),
+        "parent": None,
+    }}
+
+    # Parent
+    if dag.length() > 1:
+        parent_dag = om2.MDagPath(dag)
+        parent_dag.pop()
+        result["parent"] = om2.MFnDagNode(parent_dag).name()
+
+    # Children
+    children = []
+    for i in range(dag.childCount()):
+        child = dag.child(i)
+        children.append(om2.MFnDagNode(child).name())
+    result["children"] = children
+
+    # Mesh stats
+    if result["type"] == "mesh":
+        dag_path = om2.MDagPath.getAPathTo(dag)
+        mesh_fn = om2.MFnMesh(dag_path)
+        result["vertex_count"] = mesh_fn.numVertices
+        result["face_count"] = mesh_fn.numPolygons
+except Exception as e:
+    result = {{"error": str(e)}}
+
+result
+"""
+        obj_data = await _execute_scene_code(
+            client, code, session_key, use_cache=False
+        )
+
+        # Neighbors
+        neighbors = None
+        if include_neighbors and "error" not in obj_data:
+            spatial_code = "_mcp_scene.get_spatial_index()"
+            spatial_data = await _execute_scene_code(
+                client, spatial_code, session_key,
+                use_cache=True, cache_key="spatial_index",
+            )
+
+            # Find neighbors for this object
+            obj_names = spatial_data.get("objects", [])
+            pairs = spatial_data.get("pairs", [])
+            try:
+                obj_idx = obj_names.index(target)
+                neighbor_indices = set()
+                for pair in pairs:
+                    if pair[0] == obj_idx:
+                        neighbor_indices.add((pair[1], pair[2]))
+                    elif pair[1] == obj_idx:
+                        neighbor_indices.add((pair[0], pair[2]))
+
+                neighbors = []
+                for idx, dist in sorted(neighbor_indices, key=lambda x: x[1]):
+                    neighbors.append({"name": obj_names[idx], "distance": dist})
+            except (ValueError, IndexError):
+                pass
+
+        if format == "json":
+            result = {"object": obj_data, "neighbors": neighbors}
+            return json.dumps(result, indent=2)
+        else:
+            return format_inspect_cos(obj_data, neighbors=neighbors)
+
+    @mcp.tool
+    async def scene_measure(
+        obj_a: str,
+        obj_b: str,
+        mode: str = "center",
+        format: str = "cos",
+        session_key: str | None = None,
+    ) -> str:
+        """Measure spatial relationship between two objects.
+
+        Args:
+            obj_a: First object name.
+            obj_b: Second object name.
+            mode: Measurement type:
+                - "center": Center-to-center distance (default)
+                - "surface": Closest surface point distance
+                - "clearance": Gap/clearance distance
+                - "bbox": Bounding box overlap detection
+            format: Output format - "cos" or "json".
+            session_key: Maya session key.
+
+        Returns:
+            Measurement result with distance, overlap info, and axis details.
+
+        Example:
+            scene_measure("wall_north", "counter_A", mode="clearance")
+            → MEASURE[clearance]: wall_north ↔ counter_A = 45cm
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+
+        # Ensure module is injected
+        await _ensure_module_injected(client, session_key)
+
+        code = f"_mcp_scene.measure('{obj_a}', '{obj_b}', '{mode}')"
+        result = await _execute_scene_code(
+            client, code, session_key, use_cache=False
+        )
+
+        if format == "json":
+            return json.dumps(result, indent=2)
+        else:
+            return format_measure_cos(result)
+
+    @mcp.tool
+    async def scene_assert(
+        expectations: str,
+        format: str = "cos",
+        session_key: str | None = None,
+    ) -> str:
+        """Verify scene state matches expected values.
+
+        Use this after modifications to confirm the scene is in the desired state.
+        Enforces the VERIFY step of the ICEV workflow.
+
+        Args:
+            expectations: JSON string defining expected state.
+                Format: {"obj_name": {"position": [x,y,z], "bbox_max": [x,y,z], ...}}
+                Supported properties: position, bbox_max, bbox_min, exists, material.
+            format: Output format - "cos" or "json".
+            session_key: Maya session key.
+
+        Returns:
+            Pass/fail result with mismatches.
+
+        Example:
+            scene_assert('{"wall_north": {"position": [0,0,500], "exists": true}}')
+            → ASSERT[PASS]: 2 checks
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+
+        # Ensure module is injected
+        await _ensure_module_injected(client, session_key)
+
+        # Escape the expectations JSON for embedding in Python code
+        expectations_escaped = expectations.replace("\\", "\\\\").replace('"', '\\"')
+
+        code = f'_mcp_scene.assert_scene_state("{expectations_escaped}")'
+        result = await _execute_scene_code(
+            client, code, session_key, use_cache=False
+        )
+
+        if format == "json":
+            return json.dumps(result, indent=2)
+        else:
+            return format_assert_cos(result)
+
+    # ============================================================
+    # P0: Spatial Constraint Validation
+    # ============================================================
+
+    @mcp.tool
+    async def scene_validate(
+        rules: str,
+        format: str = "cos",
+        session_key: str | None = None,
+    ) -> str:
+        """Validate scene against spatial constraints.
+
+        Checks the scene for constraint violations like minimum clearance,
+        object limits, overlaps, and height requirements.
+
+        Args:
+            rules: JSON string with constraint rules. Format:
+                [{"type": "min_clearance", "zone": "entrance", "value": 180},
+                 {"type": "max_objects", "value": 5000},
+                 {"type": "no_overlap", "objects": ["wall_a", "shelf_b"]},
+                 {"type": "min_height", "objects": ["door"], "value": 250}]
+                Types: min_clearance, max_objects, no_overlap, min_height, max_height
+            format: Output format - "cos" or "json".
+            session_key: Maya session key.
+
+        Returns:
+            Validation result with violations list.
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+        await _ensure_module_injected(client, session_key)
+
+        rules_escaped = rules.replace('"', '\\"')
+        code = f'_mcp_scene.check_constraints({rules})'
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
+
+        if format == "json":
+            return json.dumps(result, indent=2)
+        else:
+            passed = "PASS" if result.get("passed") else "FAIL"
+            lines = [f"VALIDATE[{passed}]: {result.get('checked', 0)} checks, {result.get('violation_count', 0)} violations"]
+            for v in result.get("violations", [])[:10]:
+                lines.append(f"  VIOLATION: {v.get('type')} - {v}")
+            return "\n".join(lines)
+
+    # ============================================================
+    # P0: Scene Checkpoint / Rollback
+    # ============================================================
+
+    @mcp.tool
+    async def scene_checkpoint(
+        name: str = "checkpoint",
+        session_key: str | None = None,
+    ) -> str:
+        """Save a scene checkpoint for disaster recovery.
+
+        Creates a timestamped .ma backup in a checkpoints/ directory
+        next to the scene file. Use before risky operations.
+
+        Args:
+            name: Human-readable checkpoint name.
+            session_key: Maya session key.
+
+        Returns:
+            Checkpoint info with path and object count.
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+        await _ensure_module_injected(client, session_key)
+
+        name_escaped = name.replace('"', '\\"')
+        code = f'_mcp_scene.save_checkpoint("{name_escaped}")'
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
+        return json.dumps(result, indent=2)
+
+    @mcp.tool
+    async def scene_rollback(
+        filename: str,
+        session_key: str | None = None,
+    ) -> str:
+        """Rollback scene to a previously saved checkpoint.
+
+        Automatically saves current state before rolling back.
+
+        Args:
+            filename: Checkpoint filename from scene_checkpoint_list.
+            session_key: Maya session key.
+
+        Returns:
+            Rollback result with auto-backup info.
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+        await _ensure_module_injected(client, session_key)
+
+        filename_escaped = filename.replace('"', '\\"')
+        code = f'_mcp_scene.rollback_to_checkpoint("{filename_escaped}")'
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
+        mark_dirty(session_key)
+        return json.dumps(result, indent=2)
+
+    @mcp.tool
+    async def scene_checkpoint_list(
+        session_key: str | None = None,
+    ) -> str:
+        """List all saved checkpoints for the current scene.
+
+        Args:
+            session_key: Maya session key.
+
+        Returns:
+            List of checkpoints with filenames, sizes, and timestamps.
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+        await _ensure_module_injected(client, session_key)
+
+        code = '_mcp_scene.list_checkpoints()'
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
+        return json.dumps(result, indent=2)
+
+    # ============================================================
+    # P1: Camera / Shot Planning
+    # ============================================================
+
+    @mcp.tool
+    async def camera_create(
+        target: str,
+        shot_type: str = "medium",
+        name: str = "shot_cam",
+        azimuth: float = 30,
+        elevation: float = 15,
+        session_key: str | None = None,
+    ) -> str:
+        """Create a camera positioned for a specific shot type.
+
+        Supports industry-standard shot types: extreme_wide, wide, medium,
+        close, extreme_close, over_shoulder, bird_eye, low_angle.
+
+        Args:
+            target: Target object name to look at.
+            shot_type: Shot type (default "medium").
+            name: Camera name.
+            azimuth: Horizontal angle in degrees (default 30).
+            elevation: Vertical angle in degrees (default 15).
+            session_key: Maya session key.
+
+        Returns:
+            Camera info with position, focal length, and distance.
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+        await _ensure_module_injected(client, session_key)
+
+        code = f'''import _mcp_scene
+_mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth": {azimuth}, "elevation": {elevation}}})'''
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
+        mark_dirty(session_key)
+        return json.dumps(result, indent=2)
+
+    @mcp.tool
+    async def camera_orbit(
+        center: str,
+        radius: float = 500,
+        frames: int = 120,
+        name: str = "orbit_cam",
+        session_key: str | None = None,
+    ) -> str:
+        """Create a camera that orbits around a point with animation.
+
+        Args:
+            center: JSON string with center position [x, y, z].
+            radius: Orbit radius in scene units.
+            frames: Number of frames for full orbit.
+            name: Camera name.
+            session_key: Maya session key.
+
+        Returns:
+            Camera and animation info.
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+        await _ensure_module_injected(client, session_key)
+
+        code = f'_mcp_scene.create_orbit_camera({center}, {radius}, {frames}, "{name}")'
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
+        mark_dirty(session_key)
+        return json.dumps(result, indent=2)
+
+    # ============================================================
+    # P1: Aesthetic Analysis
+    # ============================================================
+
+    @mcp.tool
+    async def scene_aesthetics(
+        format: str = "json",
+        session_key: str | None = None,
+    ) -> str:
+        """Analyze scene aesthetics: color harmony, spatial balance, focal points.
+
+        Provides quantitative aesthetic metrics for design evaluation:
+        - Color harmony type (complementary/analogous/triadic)
+        - Contrast ratio
+        - Spatial balance scores
+        - Visual focal points ranked by weight
+
+        Args:
+            format: Output format - "json" (default) or "cos".
+            session_key: Maya session key.
+
+        Returns:
+            Aesthetic analysis report.
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+        await _ensure_module_injected(client, session_key)
+
+        code = '_mcp_scene.analyze_aesthetics()'
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
+
+        if format == "json":
+            return json.dumps(result, indent=2)
+        else:
+            ch = result.get("color_harmony", {})
+            sb = result.get("spatial_balance", {})
+            fp = result.get("focal_points", [])
+            lines = [
+                f"AESTHETICS REPORT",
+                f"  Color: {ch.get('harmony_type', '?')} | Contrast: {ch.get('contrast_ratio', '?')}",
+                f"  Dominant: RGB{tuple(ch.get('dominant_color', [0,0,0]))}",
+                f"  Balance: X={sb.get('balance_score_x', '?')} Z={sb.get('balance_score_z', '?')} Overall={sb.get('overall_balance', '?')}",
+                f"  Focal Points:",
+            ]
+            for f in fp[:3]:
+                lines.append(f"    {f.get('object')}: weight={f.get('visual_weight')} mat={f.get('material')}")
+            return "\n".join(lines)
+
+    @mcp.tool
+    async def scene_review(
+        checks: str = "all",
+        format: str = "json",
+        session_key: str | None = None,
+    ) -> str:
+        """Comprehensive scene audit - reviews all aspects after operations.
+
+        Runs spatial integrity, overlap detection, zone coverage, aesthetics,
+        constraint validation, and orphan detection. Returns a score (0-100)
+        and detailed issue list.
+
+        Use this after any major scene modification to verify quality.
+
+        Args:
+            checks: Comma-separated check names or "all".
+                Options: spatial, overlaps, zones, aesthetics, constraints, orphans
+            format: Output format - "json" or "cos".
+            session_key: Maya session key.
+
+        Returns:
+            Audit report with score, issues, and per-check details.
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+        await _ensure_module_injected(client, session_key)
+
+        if checks == "all":
+            checks_code = "None"
+        else:
+            check_list = [c.strip() for c in checks.split(",")]
+            checks_code = json.dumps(check_list)
+
+        code = f'import _mcp_scene; _mcp_scene.scene_review({checks_code})'
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
+
+        if format == "json":
+            return json.dumps(result, indent=2)
+        else:
+            score = result.get("score", 0)
+            errors = result.get("errors", 0)
+            warnings = result.get("warnings", 0)
+            issues = result.get("issues", [])
+            lines = [f"REVIEW: score={score}/100 | errors={errors} | warnings={warnings}"]
+            for issue in issues[:10]:
+                sev = issue.get("severity", "?").upper()
+                lines.append(f"  [{sev}] {issue.get('check')}: {issue.get('msg')}")
+            return "\n".join(lines)
+
