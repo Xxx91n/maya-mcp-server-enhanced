@@ -1,53 +1,51 @@
-# maya-mcp-server
+# Maya MCP Server
 
-MCP server for interacting with Autodesk Maya sessions with **spatial awareness**, **camera planning**, **aesthetic analysis**, and **scene auditing**.
+> 让 AI Agent 拥有 Maya 三维空间感知能力的 MCP 服务器
 
-## Features
+[English](README_en.md) | 中文
 
-### Core
-- **Multi-session support**: Manage multiple Maya sessions from a single MCP server
-- **Full Python expressiveness**: Execute arbitrary Python code in Maya
-- **Streaming output**: Capture stdout/stderr via MCP resources
-- **Simple setup**: No Maya modules to install — uses command port bootstrapping
-- **Easy installation**: `uvx maya-mcp-server`
+## 这是什么
 
-### Spatial Awareness (NEW)
-- **`scene_snapshot`**: Full scene spatial overview with CoS notation (65% token savings)
-- **`scene_inspect`**: Deep inspection of objects/zones with neighbor analysis
-- **`scene_measure`**: Precise distance measurement (center/surface/clearance/bbox)
-- **`scene_assert`**: Verify scene state matches expectations
+`maya-mcp-server` 是一个 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 服务器，让大语言模型（如 Codex、Claude）能够直接操控 Autodesk Maya，进行三维建模、场景规划和工程级项目落地。
 
-### Scene Auditing (NEW)
-- **`scene_review`**: Universal 9-dimension audit (0-100 score)
-  - Spatial integrity, overlap detection, spatial conflicts, zone coverage
-  - Naming conventions, componentization, aesthetics, constraints, orphans
+**核心能力：** AI 不再是"闭眼写代码"，而是像有了眼睛一样，能随时感知 Maya 场景的空间状态、材质分布、物体关系，并基于工程规范进行智能审核。
 
-### Camera & Animation (NEW)
-- **`camera_create`**: Create cameras with industry-standard shot types (wide/medium/close/bird_eye/etc.)
-- **`camera_orbit`**: Create orbiting cameras with keyframe animation
+## 能力矩阵
 
-### Safety & Recovery (NEW)
-- **`scene_checkpoint`**: Save scene checkpoints before risky operations
-- **`scene_checkpoint_list`**: List all saved checkpoints
-- **`scene_rollback`**: Rollback to any checkpoint (auto-backup before rollback)
-- **`scene_validate`**: Validate spatial constraints (min_clearance/max_objects/no_overlap)
+| 能力 | 工具 | 说明 |
+|------|------|------|
+| 🧊 **空间感知** | `scene_snapshot` `scene_inspect` `scene_measure` | 一次调用获取全场景空间模型，精确距离/重叠/间隙测量 |
+| 🎨 **审美分析** | `scene_aesthetics` | 色彩和谐度、空间平衡、视觉焦点分析 |
+| 🎬 **镜头规划** | `camera_create` `camera_orbit` | 8 种行业标准镜头 + 环绕动画 |
+| 🛡️ **避灾回退** | `scene_checkpoint` `scene_rollback` | 操作前快照，失败自动回滚 |
+| 📋 **工程审核** | `scene_review` `scene_validate` | 9 维度审核（0-100 分），空间冲突/组件化/命名规范检测 |
+| ⚡ **代码执行** | `execute_code` `write_module` | 在 Maya 中执行任意 Python 代码 |
 
-### Aesthetic Analysis (NEW)
-- **`scene_aesthetics`**: Color harmony, spatial balance, focal point analysis
+## 快速开始
 
-## Installation
+### 1. 安装
 
 ```bash
-# Using uvx (recommended)
-uvx maya-mcp-server
-
-# Or pip install
+# 从 PyPI
 pip install maya-mcp-server
+
+# 或从源码
+git clone https://github.com/Xxx91n/maya-mcp-server-enhanced.git
+cd maya-mcp-server-enhanced
+pip install -e .
 ```
 
-## Configuration
+### 2. 配置 Maya
 
-Add to your MCP client config (e.g., Codex `~/.codex/config.toml`):
+在 Maya 的脚本编辑器中执行：
+```python
+import maya.cmds as cmds
+cmds.commandPort(name=':7001', sourceType='python')
+```
+
+### 3. 配置 MCP 客户端
+
+在 Codex 的 `~/.codex/config.toml` 中添加：
 
 ```toml
 [mcp_servers.maya_mcp]
@@ -59,126 +57,165 @@ tool_timeout_sec = 120
 PYTHONPATH = "/path/to/maya-mcp-server/src"
 ```
 
-## Usage
+### 4. 开始使用
 
-### ICEV Workflow (Recommended)
+在 Codex 中直接对话：
+> "帮我看看 Maya 场景里有什么，然后在入口处创建一个展示架"
 
-Every scene modification follows the **ICEV** cycle:
+AI 会自动调用 `scene_snapshot()` → 理解场景 → 执行建模 → `scene_review()` 审核结果。
 
-1. **INSPECT**: `scene_snapshot()` → understand current state
-2. **COMPUTE**: Use spatial data to calculate changes
-3. **EXECUTE**: `execute_code()` → apply changes
-4. **VERIFY**: `scene_assert()` + `scene_review()` → confirm results
+## 工作流：ICEV 循环
 
-### Example: Create and Verify
+每次场景修改都遵循 **ICEV** 工作流：
 
 ```
-# 1. Get scene overview
+┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+│ INSPECT  │ ──→ │ COMPUTE  │ ──→ │ EXECUTE  │ ──→ │ VERIFY   │
+│ 场景快照  │     │ 计算规划  │     │ 执行修改  │     │ 审核验证  │
+└──────────┘     └──────────┘     └──────────┘     └──────────┘
+```
+
+1. **INSPECT**：`scene_snapshot()` 获取全场景空间数据
+2. **COMPUTE**：基于空间数据计算位置、尺寸、间距
+3. **EXECUTE**：`execute_code()` 执行 Maya Python 代码
+4. **VERIFY**：`scene_assert()` + `scene_review()` 确认结果
+
+## 工具详解
+
+### 空间感知
+
+```python
+# 全场景快照（一次调用，返回所有物体的空间数据）
 scene_snapshot(detail="compact", format="cos")
 
-# 2. Create objects
-execute_code("import maya.cmds as cmds; cmds.polyCube(name='wall', w=300, h=200, d=10)")
+# 深度检查特定物体（含邻居分析）
+scene_inspect(target="wall_entrance", include_neighbors=True)
 
-# 3. Verify result
-scene_assert(expectations='{"wall": {"exists": true}}')
+# 精确测量（4 种模式）
+scene_measure(obj_a="wall_north", obj_b="counter_A", mode="clearance")
 
-# 4. Full audit
+# 验证场景状态
+scene_assert(expectations='{"wall": {"exists": true, "position": [0,0,500]}}')
+```
+
+### 工程审核
+
+```python
+# 9 维度审核（返回 0-100 分）
 scene_review()
+# 检查：空间完整性、重叠、冲突、区域、命名、组件化、审美、约束、孤儿
+
+# 空间约束验证
+scene_validate(rules='[{"type": "min_clearance", "value": 180}]')
 ```
 
-### Example: Camera Planning
+### 镜头规划
 
+```python
+# 创建镜头（支持 8 种行业标准类型）
+camera_create(target="product_display", shot_type="medium", azimuth=30, elevation=15)
+# 类型：extreme_wide / wide / medium / close / extreme_close / bird_eye / low_angle / over_shoulder
+
+# 环绕动画相机
+camera_orbit(center=[0, 100, 0], radius=500, frames=120)
 ```
-# Create a wide establishing shot
-camera_create(target="store_entrance", shot_type="wide", azimuth=30, elevation=15)
 
-# Create orbiting camera for product showcase
-camera_orbit(center=[0, 100, 0], radius=500, frames=120, name="product_orbit")
-```
+### 避灾回退
 
-### Example: Safety Workflow
-
-```
-# Before risky operation
+```python
+# 保存检查点（操作前）
 scene_checkpoint(name="before_renovation")
 
-# Make changes...
+# 列出所有检查点
+scene_checkpoint_list()
 
-# Verify
-scene_review()
-# If issues found:
-scene_rollback(filename="cp_20260628_120000_before_renovation.ma")
+# 回滚（自动备份当前状态）
+scene_rollback(filename="cp_20260629_120000_before_renovation.ma")
 ```
 
-## MCP Tools Reference
+## CoS 符号化格式
 
-| Tool | Description |
-|------|-------------|
-| `list_sessions` | List active Maya sessions |
-| `write_module` | Create virtual Python modules in Maya |
-| `execute_code` | Execute Python code in Maya |
-| `scene_snapshot` | Full scene spatial overview |
-| `scene_inspect` | Deep inspection of object/zone |
-| `scene_measure` | Distance measurement (4 modes) |
-| `scene_assert` | Verify scene state |
-| `scene_review` | Universal 9-dimension audit |
-| `scene_validate` | Spatial constraint validation |
-| `scene_checkpoint` | Save scene checkpoint |
-| `scene_checkpoint_list` | List checkpoints |
-| `scene_rollback` | Rollback to checkpoint |
-| `camera_create` | Create camera with shot type |
-| `camera_orbit` | Create orbiting camera |
-| `scene_aesthetics` | Aesthetic analysis |
-
-## Architecture
+默认输出使用 **Chain-of-Symbol** 格式，比 JSON 节省 **65% token**：
 
 ```
-┌─────────────────────────────────────────────┐
-│              LLM Agent (Codex)               │
-│                                              │
-│  scene_snapshot() → complete spatial model   │
-│  scene_review() → 9-dimension audit score    │
-│  camera_create() → industry-standard shots   │
-└──────────┬───────────────────────────────────┘
-           │ MCP Tools (15 tools)
-┌──────────▼───────────────────────────────────┐
-│         MCP Server Layer                      │
-│                                               │
-│  scene_tools.py → 15 MCP tool definitions     │
-│  scene_cache.py → TTL + dirty detection       │
-│  cos_formatter.py → CoS notation (65% saving) │
-│  security.py → input validation + rate limit  │
-└──────────┬───────────────────────────────────┘
+SCENE[164obj, 5zones] UNIT=cm UP=y
+shell (23obj) @(-11.8,178.8,145.7)
+  GRP_floor[mesh]@(0,0,0) 1121.5x20x1530.5
+  pasted__arch_wall[mesh]@(0,0,0) 100x300x10
+entrance (6obj) @(157.3,162.6,-111.6)
+  GRP_workshopFront[group]@(1162,-17,103) 227.4x200.9x193.3
+```
+
+## 配套 Skills
+
+项目提供 4 个 Codex Skills，放在 `~/.codex/skills/` 下：
+
+| Skill | 用途 | 触发场景 |
+|-------|------|----------|
+| `maya-architect` | 空间布局 + ICEV 工作流 | 用户描述空间需求时 |
+| `maya-camera` | 镜头规划 + 运镜 | 用户需要相机/动画时 |
+| `maya-aesthetics` | 配色/平衡/焦点分析 | 用户关注视觉效果时 |
+| `maya-safety` | 检查点/回滚/约束 | 进行高风险操作时 |
+
+## 架构
+
+```
+┌──────────────────────────────────────────┐
+│           LLM Agent (Codex)              │
+│  scene_snapshot() → 完整空间模型          │
+│  scene_review() → 9维度审核评分           │
+└──────────┬───────────────────────────────┘
+           │ 15 个 MCP 工具
+┌──────────▼───────────────────────────────┐
+│        MCP Server Layer                   │
+│  scene_tools.py  → 工具定义               │
+│  scene_cache.py  → TTL 缓存 + 脏检测      │
+│  cos_formatter.py → CoS 符号化（省65%）    │
+│  security.py     → 输入验证 + 速率限制     │
+└──────────┬───────────────────────────────┘
            │ execute_code("import _mcp_scene; ...")
-┌──────────▼───────────────────────────────────┐
-│         Maya Side (_mcp_scene module)          │
-│                                               │
-│  get_scene_graph() → BBox + Transform + tree  │
-│  get_zone_map() → functional zone grouping    │
-│  get_spatial_index() → neighbor relationships │
-│  measure() → precise distance measurement     │
-│  scene_review() → 9-dimension audit           │
-│  analyze_aesthetics() → color/balance/focal   │
-└───────────────────────────────────────────────┘
+┌──────────▼───────────────────────────────┐
+│        Maya 端 (_mcp_scene 模块)           │
+│  get_scene_graph() → 层级 + BBox + 变换   │
+│  get_spatial_index() → 空间索引 + 邻居     │
+│  scene_review() → 9维度审核引擎            │
+│  analyze_aesthetics() → 色彩/平衡/焦点     │
+└──────────────────────────────────────────┘
 ```
 
-## Development
+## 审核维度
+
+`scene_review()` 提供 9 个通用审核维度（适用于任何 Maya 项目）：
+
+| 维度 | 分值 | 检查内容 |
+|------|------|----------|
+| spatial | 15 | 物体数、相机数、灯光数 |
+| overlaps | 15 | BBox 碰撞检测 |
+| conflicts | 15 | 空间穿透检测 |
+| components | 15 | GRP_ 分组 + 嵌套深度 |
+| naming | 10 | Maya 命名规范 |
+| zones | 10 | 区域覆盖率 |
+| aesthetics | 10 | 色彩和谐 + 空间平衡 + 焦点 |
+| constraints | 5 | 安全约束 |
+| orphans | 5 | 孤儿/空组检测 |
+
+## 开发
 
 ```bash
-# Install dev dependencies
+# 安装开发依赖
 pip install -e ".[dev]"
 
-# Run tests
+# 运行测试
 python -m pytest tests/ -q
 
-# Run with debug logging
-LOGLEVEL=DEBUG python -m maya_mcp_server
+# 安全审计
+semgrep scan --config auto src/
 ```
 
-## Credits
+## 致谢
 
-Based on [chadrik/maya-mcp-server](https://github.com/chadrik/maya-mcp-server) with spatial awareness, camera planning, aesthetic analysis, and scene auditing extensions.
+基于 [chadrik/maya-mcp-server](https://github.com/chadrik/maya-mcp-server) 扩展开发。
 
-## License
+## 许可证
 
 MIT
