@@ -93,3 +93,110 @@ python scripts/dependency.py --path src
 - `execute_code` with `result_type="JSON"` may receive `dict` directly (not `str`). The client handles both.
 - Stream capture auto-installs on first `get_client()` call.
 - `import X; X.func()` pattern can fail with `prepare_code_for_result_capture`. Pre-import with `execute_code("import X", NONE)` then use expression-only calls.
+
+
+## Cross-Module Dependency Rules (联动规范)
+
+When modifying any module, the following files MUST be updated together.
+Failure to update dependent files will cause integration failures.
+
+### Module Dependency Map
+
+| Module Modified | Must Also Update | Reason |
+|----------------|------------------|--------|
+| `maya_scene_module.py` (scene_plan) | `scene_tools.py`, `server.py`, `README.md`, `README_en.md` | Scene planning tool needs MCP tool + docs |
+| `maya_scene_module.py` (aesthetic functions) | `aesthetic_engine.py`, `scene_tools.py`, `tests/test_aesthetic_engine.py` | Aesthetic engine is dual-implemented (standalone + Maya-side); tool descriptions must match; tests must cover |
+| `maya_scene_module.py` (lighting functions) | `scene_tools.py`, `tests/test_aesthetic_engine.py` | Lighting data fields must match tool expectations |
+| `maya_scene_module.py` (scene_review) | `scene_tools.py` (scene_review docstring), `server.py` (instructions) | Review check names must match tool args; instructions must list all checks |
+| `maya_scene_module.py` (new function) | `scene_tools.py` (new tool), `server.py` (instructions), `README.md`, `README_en.md`, `tests/` | Every new Maya function needs a corresponding MCP tool, docs, and tests |
+| `scene_tools.py` (new tool) | `server.py` (instructions), `README.md`, `README_en.md`, `AGENTS.md` | Tool surface changes require documentation sync |
+| `aesthetic_engine.py` | `maya_scene_module.py` (mirror functions), `tests/test_aesthetic_engine.py` | Standalone engine must match Maya-side implementation |
+| `scene_cache.py` | `scene_tools.py` (cache invalidation), `session_manager.py` (mark_dirty) | Cache behavior must be consistent |
+| `security.py` | `scene_tools.py` (validation calls), `tests/test_security.py` | Security rules must be enforced at tool level |
+| `cos_formatter.py` | `scene_tools.py` (COS format output) | Formatter changes affect all tool COS outputs |
+
+### Aesthetic Module Change Checklist
+
+When modifying ANY aesthetic-related code, update ALL of these:
+
+1. **`maya_scene_module.py`** — Maya-side `analyze_aesthetics()` + `_score_*()` functions
+2. **`aesthetic_engine.py`** — Standalone engine (mirrors Maya-side for testing)
+3. **`scene_tools.py`** — `scene_aesthetics` tool docstring + COS format output
+4. **`maya_scene_module.py`** — `scene_review()` aesthetics section (must read new format)
+5. **`server.py`** — MCP instructions (aesthetic dimension descriptions)
+6. **`tests/test_aesthetic_engine.py`** — Unit tests for all dimensions
+7. **`README.md`** + **`README_en.md`** — Feature descriptions
+8. **`AGENTS.md`** — This checklist (if new dimensions added)
+
+### Lighting Module Change Checklist
+
+When modifying lighting analysis:
+
+1. **`maya_scene_module.py`** — Light data collection in `analyze_aesthetics()` + `_score_lighting_quality()`
+2. **`aesthetic_engine.py`** — `compute_lighting_quality_score()`
+3. **`scene_tools.py`** — `scene_aesthetics` and `scene_review` tool docs
+4. **`maya_scene_module.py`** — `scene_review()` lighting section
+5. **`tests/test_aesthetic_engine.py`** — Lighting tests
+
+### Scene Review Change Checklist
+
+When modifying `scene_review()`:
+
+1. **`maya_scene_module.py`** — `scene_review()` function
+2. **`scene_tools.py`** — `scene_review` tool docstring (check names must match)
+3. **`server.py`** — Instructions (list all review checks)
+4. **`README.md`** + **`README_en.md`** — Review capabilities description
+5. **`tests/`** — Review tests
+
+### Naming Convention Rules
+
+- Groups: `GRP_` prefix (e.g., `GRP_store_shell`, `GRP_display_main`)
+- Geometry: `GEO_` prefix (e.g., `GEO_wall_north`)
+- Materials: `MAT_` prefix (e.g., `MAT_dark_wood`)
+- Cameras: `CAM_` prefix (e.g., `CAM_entrance_wide`)
+- Lights: `LGT_` prefix with role (e.g., `LGT_key_main`, `LGT_fill_ambient`, `LGT_accent_spot`)
+- Locators: `LOC_` prefix
+- Root groups must use `GRP_` prefix
+- No default Maya names (`pCube`, `pSphere`, `group1`, etc.)
+- Max nesting depth: 4 levels
+- All meshes must be under a `GRP_` parent
+
+### Group-Based Layout Rules
+
+Every object in the scene MUST belong to a GRP_ group. The scene_plan tool provides:
+
+1. **Intelligent Auto-Fix**: Automatically categorizes orphan objects into 9 zone groups:
+   - GRP_shell: walls, floors, ceilings, structure
+   - GRP_entrance: doors, gates, lobby
+   - GRP_display: shelves, counters, kiosks
+   - GRP_ip_core: characters, figures, mascots
+   - GRP_furniture: tables, chairs, benches
+   - GRP_lighting: lights, spots, LEDs
+   - GRP_path: aisles, corridors, walkways
+   - GRP_decor: signs, banners, decorations
+   - GRP_service: checkout, storage, staff areas
+
+2. **Group-Level Layout**: Analyzes group positions for overlaps, spacing, and zone compliance
+3. **Natural Language Planning**: Parses user objectives into structured execution plans
+4. **Zone Compliance**: Maps groups to functional zones (entrance → display → circulation → service)
+
+### ICEV Workflow (Mandatory)
+
+Every scene modification MUST follow:
+
+1. **INSPECT** — `scene_snapshot()` to get current state
+2. **COMPUTE** — Calculate changes based on spatial data
+3. **EXECUTE** — `execute_code()` to apply changes
+4. **VERIFY** — `scene_assert()` or `scene_review()` to confirm
+
+### Error Detection Rules
+
+The `scene_review()` function now detects:
+
+- **Orphan objects**: Root-level meshes not under `GRP_` groups
+- **Empty groups**: `GRP_` groups with no children
+- **Inconsistent naming**: Too many single-use naming prefixes
+- **Excessive depth**: Hierarchy deeper than 4 levels
+- **Spatial conflicts**: Objects penetrating non-parent objects
+- **Aesthetic weaknesses**: Dimensions scoring below 40/100
+- **Lighting issues**: Missing three-point setup, poor fill ratio, non-physical decay

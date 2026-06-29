@@ -1,4 +1,4 @@
-﻿"""Security utilities for maya-mcp-server.
+"""Security utilities for maya-mcp-server.
 
 Provides input validation, rate limiting, and security checks
 for MCP tool inputs before they reach Maya execution.

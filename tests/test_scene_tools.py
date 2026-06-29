@@ -112,7 +112,7 @@ class TestSceneToolsRegistration:
         assert "scene_inspect" in registered
         assert "scene_measure" in registered
         assert "scene_assert" in registered
-        assert len(registered) == 12
+        assert len(registered) == 13
 
 
 class TestMayaSceneModule:

@@ -683,20 +683,23 @@ _mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth": 
         format: str = "json",
         session_key: str | None = None,
     ) -> str:
-        """Analyze scene aesthetics: color harmony, spatial balance, focal points.
+        """Professional-grade aesthetic analysis with 5 design dimensions.
 
-        Provides quantitative aesthetic metrics for design evaluation:
-        - Color harmony type (complementary/analogous/triadic)
-        - Contrast ratio
-        - Spatial balance scores
-        - Visual focal points ranked by weight
+        Analyzes scene aesthetics across 5 professional design dimensions:
+        1. Color Theory: 60-30-10 rule, temperature balance, harmony type, saturation variety, contrast
+        2. Spatial Composition: golden ratio proportions, rule-of-thirds alignment, visual weight balance
+        3. Proportion & Scale: human ergonomic reference, size hierarchy (hero/secondary/tertiary)
+        4. Lighting Quality: layer composition (key/fill/rim/accent), color temperature consistency
+        5. Visual Flow: sight line clarity, circulation paths, visual rhythm patterns
+
+        Returns an overall score (0-100) with grade (S/A/B/C/D/F) and improvement suggestions.
 
         Args:
-            format: Output format - "json" (default) or "cos".
+            format: Output format - "json" (default) or "cos" (chain-of-symbol, token-efficient).
             session_key: Maya session key.
 
         Returns:
-            Aesthetic analysis report.
+            Comprehensive aesthetic analysis report with scores per dimension.
         """
         from maya_mcp_server.server import get_session_manager
 
@@ -710,19 +713,48 @@ _mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth": 
         if format == "json":
             return json.dumps(result, indent=2)
         else:
-            ch = result.get("color_harmony", {})
-            sb = result.get("spatial_balance", {})
-            fp = result.get("focal_points", [])
-            lines = [
-                f"AESTHETICS REPORT",
-                f"  Color: {ch.get('harmony_type', '?')} | Contrast: {ch.get('contrast_ratio', '?')}",
-                f"  Dominant: RGB{tuple(ch.get('dominant_color', [0,0,0]))}",
-                f"  Balance: X={sb.get('balance_score_x', '?')} Z={sb.get('balance_score_z', '?')} Overall={sb.get('overall_balance', '?')}",
-                f"  Focal Points:",
+            # COS format: compact token-efficient output
+            overall = result.get("overall_score", 0)
+            grade = result.get("grade", "?")
+            dims = result.get("dimensions", {})
+            suggestions = result.get("improvement_suggestions", [])
+
+            out = [
+                "AESTHETIC_SCORE[%s/100] GRADE=%s" % (overall, grade),
+                "  COLOR[%s] SPATIAL[%s] SCALE[%s]" % (
+                    dims.get("color_theory", "?"),
+                    dims.get("spatial_composition", "?"),
+                    dims.get("proportion_scale", "?")),
+                "  LIGHT[%s] FLOW[%s]" % (
+                    dims.get("lighting_quality", "?"),
+                    dims.get("visual_flow", "?")),
             ]
-            for f in fp[:3]:
-                lines.append(f"    {f.get('object')}: weight={f.get('visual_weight')} mat={f.get('material')}")
-            return "\n".join(lines)
+
+            # Detail sub-scores
+            detail = result.get("detail", {})
+            ct = detail.get("color_theory", {})
+            if ct.get("sub_scores"):
+                ss = ct["sub_scores"]
+                out.append("  COLOR_DETAIL: 60-30-10=%s temp=%s sat=%s harmony=%s contrast=%s" % (
+                    ss.get("60_30_10", "?"), ss.get("temperature", "?"),
+                    ss.get("saturation", "?"), ss.get("harmony", "?"),
+                    ss.get("contrast", "?")))
+
+            sc = detail.get("spatial_composition", {})
+            if sc.get("sub_scores"):
+                ss = sc["sub_scores"]
+                out.append("  SPATIAL_DETAIL: golden=%s thirds=%s balance=%s" % (
+                    ss.get("golden_ratio", "?"), ss.get("rule_of_thirds", "?"),
+                    ss.get("visual_balance", "?")))
+
+            if suggestions:
+                improve_parts = []
+                for s in suggestions:
+                    improve_parts.append("%s(%s,%s)" % (s["dimension"], s["score"], s["priority"]))
+                out.append("  IMPROVE: " + " | ".join(improve_parts))
+
+            return "\n".join(out)
+
 
     @mcp.tool
     async def scene_review(
@@ -733,14 +765,14 @@ _mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth": 
         """Comprehensive scene audit - reviews all aspects after operations.
 
         Runs spatial integrity, overlap detection, zone coverage, aesthetics,
-        constraint validation, and orphan detection. Returns a score (0-100)
+        constraint validation, orphan detection, naming, componentization, conflicts, lighting quality, and scene organization. Returns a score (0-100)
         and detailed issue list.
 
         Use this after any major scene modification to verify quality.
 
         Args:
             checks: Comma-separated check names or "all".
-                Options: spatial, overlaps, zones, aesthetics, constraints, orphans
+                Options: spatial, overlaps, zones, aesthetics, constraints, orphans, naming, components, conflicts, lighting, organization
             format: Output format - "json" or "cos".
             session_key: Maya session key.
 
@@ -774,4 +806,68 @@ _mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth": 
                 sev = issue.get("severity", "?").upper()
                 lines.append(f"  [{sev}] {issue.get('check')}: {issue.get('msg')}")
             return "\n".join(lines)
+
+    @mcp.tool
+    async def scene_plan(
+        objective: str = "",
+        auto_fix: bool = False,
+        format: str = "json",
+        session_key: str | None = None,
+    ) -> str:
+        """Holistic scene planning with organization validation and layout optimization.
+
+        Performs comprehensive scene health check and generates actionable plans:
+        - Organization validation: detects orphan meshes, empty groups, default names
+        - Zone analysis: coverage and spatial balance across functional zones
+        - Layout suggestions: spacing, overlap, and clustering detection
+        - Conflict prevention: near-miss collision prediction
+        - Action plan: prioritized step-by-step execution guide
+
+        Based on blockout-first methodology: validate organization and proportions
+        before committing to detailed modeling. Supports natural language objectives.
+
+        Args:
+            objective: Natural language goal description.
+                e.g., "set up entrance area with display window and clear circulation"
+            auto_fix: If True, auto-fix safe issues (remove empty groups, reparent orphans).
+            format: Output format - "json" (default) or "cos".
+            session_key: Maya session key.
+
+        Returns:
+            Scene health report with organization status, zone analysis,
+            layout suggestions, conflict predictions, and action plan.
+        """
+        from maya_mcp_server.server import get_session_manager
+
+        manager = get_session_manager()
+        client = await manager.get_client(session_key)
+        await _ensure_module_injected(client, session_key)
+
+        obj_code = json.dumps(objective) if objective else "None"
+        fix_code = "True" if auto_fix else "False"
+        code = f"_mcp_scene.scene_plan(objective={obj_code}, auto_fix={fix_code})"
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
+
+        if format == "json":
+            return json.dumps(result, indent=2)
+        else:
+            # COS format
+            health = result.get("overall_health", 0)
+            grade = result.get("grade", "?")
+            org = result.get("organization_status", {})
+            zone = result.get("zone_analysis", {})
+            actions = result.get("action_plan", [])
+
+            out = [
+                f"SCENE_PLAN[{health}/100] GRADE={grade}",
+                f"  ORG: score={org.get('health_score', '?')} orphans={org.get('stats', {}).get('orphan_meshes', 0)} defaults={org.get('stats', {}).get('default_names', 0)}",
+                f"  ZONE: coverage={zone.get('coverage', '?')} balance={zone.get('balance_score', '?')}",
+            ]
+
+            if actions:
+                out.append("  ACTIONS:")
+                for a in actions[:5]:
+                    out.append(f"    {a['step']}. [{a.get('priority','?').upper()}] {a.get('description', '')}")
+
+            return "\n".join(out)
 
