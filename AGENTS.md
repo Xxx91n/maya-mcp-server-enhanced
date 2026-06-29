@@ -18,10 +18,11 @@ src/maya_mcp_server/
 ├── cos_formatter.py       # Chain-of-Symbol notation formatter
 ├── maya_scene_module.py   # Maya-side module (injected via write_module)
 ├── spatial_types.py       # Data type definitions
+├── connection_guide.py    # Maya connection bootstrap + userSetup.py generator + diagnostics
 ├── security.py            # Input validation, rate limiting, pattern scanning
 ├── types.py               # Core types (ResultType, ClientType, SessionInfo)
 ├── bootstrap.py           # Server bootstrap
-├── utils.py               # Utility functions
+├── utils.py               # Utility functions (cross-platform process detection)
 └── __main__.py            # Entry point
 
 tests/
@@ -65,6 +66,40 @@ The audit tool is generic — works for ANY Maya project:
 | aesthetics | 10 | Color harmony + spatial balance + focal points |
 | constraints | 5 | Max objects, custom rules |
 | orphans | 5 | Empty groups, default names |
+
+## Maya Connection Setup Guide
+
+When `list_sessions` returns empty, use `maya_setup_guide()` to diagnose and fix.
+
+### Workflow
+
+1. **Diagnose**: `maya_setup_guide(action="diagnose")` — checks Maya process, port, userSetup.py
+2. **Install**: `maya_setup_guide(action="install")` — auto-generates userSetup.py in Maya scripts dirs
+3. **Guide**: `maya_setup_guide(action="guide")` — full step-by-step fallback instructions for user
+4. **Uninstall**: `maya_setup_guide(action="uninstall")` — removes installed userSetup.py
+
+### Auto-Setup (userSetup.py)
+
+The generated `userSetup.py` opens Maya command port on startup using `evalDeferred` for safety.
+
+**Platform-specific paths:**
+- **Windows**: `%MAYA_APP_DIR%\<version>\scripts\userSetup.py`
+- **Linux**: `~/maya/<version>/scripts/userSetup.py`
+- **macOS**: `~/Library/Preferences/Autodesk/maya/<version>/scripts/userSetup.py`
+
+### Fallback (Manual Setup)
+
+If userSetup.py does not work, guide the user to:
+1. Open Maya Script Editor (Windows > General Editors > Script Editor)
+2. Switch to **Python** mode (not MEL)
+3. Execute: `import maya.cmds as cmds; cmds.commandPort(name=":7001", sourceType="python")`
+
+### Cross-Platform Notes
+
+- Process detection (`utils.py`) handles Windows/Linux/macOS Maya process names
+- `connection_guide.py` auto-detects platform and Maya installation paths
+- Linux: Maya may appear as `maya`, `MayaBin`, or `maya-bin`
+- All file paths use `pathlib.Path` for cross-platform compatibility
 
 ## Maya Naming Convention
 

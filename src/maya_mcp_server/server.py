@@ -7,6 +7,13 @@ from typing import Any
 
 from fastmcp import FastMCP
 
+from maya_mcp_server.connection_guide import (
+    get_agent_connection_instructions,
+    get_connection_diagnostics,
+    get_fallback_instructions,
+    install_user_setup,
+    uninstall_user_setup,
+)
 from maya_mcp_server.scene_tools import mark_dirty, register_scene_tools
 from maya_mcp_server.security import (
     InputValidationError,
@@ -34,6 +41,10 @@ mcp = FastMCP(
     "Maya MCP Server",
     instructions=(
         "This server provides tools to interact with Autodesk Maya 3D sessions.\n\n"
+        "## Connection & Setup\n"
+        "- maya_setup_guide: Diagnose connection, install userSetup.py, get fallback instructions\n"
+        "  Actions: diagnose | install | guide | uninstall\n"
+        "  Use when list_sessions returns empty or on first-time setup.\n\n"
         "## Spatial Awareness (ICEV Workflow)\n"
         "1. INSPECT: scene_snapshot() for spatial overview\n"
         "2. COMPUTE: Use spatial data to plan changes\n"
@@ -61,13 +72,14 @@ mcp = FastMCP(
         "  5. Visual Flow: sight lines, circulation clarity, visual rhythm\n"
         "  Returns: overall score (0-100), grade (S/A/B/C/D/F), improvement suggestions\n"
         "- scene_review: Comprehensive audit after operations (score 0-100)\n"
-        "  Checks: spatial, overlaps, zones, aesthetics, constraints, orphans, naming, components, conflicts, lighting, organization\n\n"
+        "  Checks: spatial, overlaps, zones, aesthetics, constraints, orphans, naming,\n"
+        "  components, conflicts, lighting, organization\n\n"
         "## Scene Planning\n"
-        "- scene_plan: Holistic scene planning with organization validation, layout optimization, conflict prevention\n"
-        "  Checks: organization health, zone balance, layout suggestions, conflict prediction, action plan\n"
-        "  Supports natural language objectives and auto-fix mode\n\n"
+        "- scene_plan: Holistic scene planning with organization validation,\n"
+        "  layout optimization, conflict prevention\n\n"
         "## General Tools\n"
         "- list_sessions: Discover active Maya sessions\n"
+        "  (if empty, call maya_setup_guide for connection help)\n"
         "- write_module: Define reusable Python functions\n"
         "- execute_code: Run Python code in Maya\n\n"
         "Best practices:\n"
@@ -106,8 +118,6 @@ def _check_rate_limit(session_key: str | None) -> None:
 
 
 # MCP Tools
-# Note: For testing, access the underlying function via tool.fn
-# Example: list_sessions.fn() calls the actual implementation
 
 
 @mcp.tool
@@ -128,9 +138,66 @@ async def list_sessions() -> list[SessionInfo]:
     Note: To detect new or removed sessions, clients should call this tool
     periodically (e.g., every 10-30 seconds) and compare results. The SessionManager
     automatically scans for new Maya sessions in the background.
+
+    If this returns an empty list, call maya_setup_guide() for connection help.
     """
     manager = get_session_manager()
-    return await manager.list_sessions()
+    sessions = await manager.list_sessions()
+    if not sessions:
+        logger.info(
+            "No Maya sessions found. Call maya_setup_guide() for connection help."
+        )
+    return sessions
+
+
+@mcp.tool
+async def maya_setup_guide(
+    action: str = "diagnose",
+    port: int = 7001,
+    target_version: str | None = None,
+) -> dict[str, Any]:
+    """
+    Maya connection setup guide and diagnostics.
+
+    Use this tool when list_sessions returns empty or when setting up
+    Maya MCP for the first time. Provides platform-aware diagnostics,
+    auto-installation of userSetup.py, and step-by-step fallback instructions.
+
+    Args:
+        action: What to do:
+            - "diagnose": Run connection diagnostics and return status
+            - "install": Auto-install userSetup.py to Maya scripts dirs
+            - "guide": Get full step-by-step connection guide
+            - "uninstall": Remove installed userSetup.py
+        port: Maya command port number (default: 7001)
+        target_version: Specific Maya version (e.g., "2024").
+            If None, targets all detected versions.
+
+    Returns:
+        Dict with diagnostics, installation results, or guide text
+
+    Typical workflow:
+        1. Call maya_setup_guide(action="diagnose") to check status
+        2. If port not open, call maya_setup_guide(action="install")
+        3. Restart Maya, then call list_sessions() again
+        4. If still failing, follow the guide from action="guide"
+    """
+    if action == "diagnose":
+        return get_connection_diagnostics(port)
+    elif action == "install":
+        return install_user_setup(port=port, target_version=target_version)
+    elif action == "guide":
+        return {
+            "guide": get_fallback_instructions(port),
+            "diagnostics": get_connection_diagnostics(port),
+            "agent_instructions": get_agent_connection_instructions(port),
+        }
+    elif action == "uninstall":
+        return uninstall_user_setup(port=port, target_version=target_version)
+    else:
+        raise InputValidationError(
+            f"Invalid action '{action}': must be diagnose, install, guide, or uninstall"
+        )
 
 
 @mcp.tool
@@ -296,7 +363,7 @@ async def add_session(host: str = "127.0.0.1", port: int = 7002) -> SessionInfo:
 
     Args:
         host: The session host (default: "127.0.0.1")
-        port: The session port number (default: 7001)
+        port: The session port number (default: 7002)
 
     Returns:
         Session information for the added session
@@ -400,4 +467,3 @@ async def shutdown_session_manager() -> None:
     if _session_manager is not None:
         await _session_manager.stop()
         _session_manager = None
-

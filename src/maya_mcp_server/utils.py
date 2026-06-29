@@ -1,4 +1,5 @@
 import logging
+import platform
 import socket
 from collections.abc import Iterator
 
@@ -10,6 +11,34 @@ from maya_mcp_server.types import MayaListeningPort
 logger = logging.getLogger(__name__)
 
 
+def get_platform() -> str:
+    """Get normalized platform name."""
+    system = platform.system().lower()
+    if system == "windows":
+        return "windows"
+    elif system == "linux":
+        return "linux"
+    elif system == "darwin":
+        return "macos"
+    return system
+
+
+def get_maya_process_names() -> list[str]:
+    """Get Maya process names for current platform.
+
+    Returns:
+        List of possible Maya process names.
+    """
+    system = get_platform()
+    if system == "windows":
+        return ["Maya", "maya", "maya.exe", "Maya.exe"]
+    elif system == "linux":
+        return ["maya", "Maya", "MayaBin", "maya-bin"]
+    elif system == "macos":
+        return ["Maya", "maya"]
+    return ["maya", "Maya"]
+
+
 def get_maya_process() -> Iterator[psutil.Process]:
     """
     Find all Maya processes.
@@ -17,11 +46,11 @@ def get_maya_process() -> Iterator[psutil.Process]:
     Yields:
         Maya Process objects
     """
+    valid_names = get_maya_process_names()
     for proc in psutil.process_iter(["name", "pid"]):
         try:
             name = proc.info["name"]
-            # Maya process names vary by platform
-            if name in ["Maya", "maya", "maya.exe", "Maya.exe"]:
+            if name in valid_names:
                 yield proc
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
@@ -62,6 +91,9 @@ def get_maya_listening_ports() -> Iterator[MayaListeningPort]:
                 f"Access denied getting Maya connections for PID {maya_proc.pid} - "
                 "try running as administrator/sudo"
             )
+            continue
+        except psutil.NoSuchProcess:
+            logger.debug(f"Maya process {maya_proc.pid} disappeared during scan")
             continue
 
     if not found_any_maya:

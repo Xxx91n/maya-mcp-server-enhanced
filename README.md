@@ -36,13 +36,51 @@ cd maya-mcp-server-enhanced
 pip install -e .
 ```
 
-### 2. 配置 Maya
+### 2. 配置 Maya 连接
+
+#### 方式一：自动配置（推荐）
+
+启动 MCP 服务器后，AI Agent 会自动调用 `maya_setup_guide` 工具引导连接：
+
+1. 确保 Maya 已启动
+2. 在 Codex 中输入任意指令（如"查看 Maya 场景"）
+3. 如果未连接，Agent 会自动运行诊断并安装 `userSetup.py`
+4. 重启 Maya 后，命令端口自动打开
+
+#### 方式二：手动配置
 
 在 Maya 的脚本编辑器中执行：
 ```python
 import maya.cmds as cmds
 cmds.commandPort(name=':7001', sourceType='python')
 ```
+
+> **提示**: Script Editor 打开方式：Maya 菜单 → Windows → General Editors → Script Editor
+> 确保语言选择器显示为 **Python**（不是 MEL）
+
+#### 方式三：永久自动连接
+
+将以下内容保存为 `userSetup.py`，放入 Maya 的 scripts 目录：
+
+| 平台 | 路径 |
+|------|------|
+| Windows | `%MAYA_APP_DIR%\<version>\scripts\` |
+| Linux | `~/maya/<version>/scripts/` |
+| macOS | `~/Library/Preferences/Autodesk/maya/<version>/scripts/` |
+
+```python
+import maya.cmds as cmds
+cmds.evalDeferred('cmds.commandPort(name=":7001", sourceType="python")', lowestPriority=True)
+```
+
+#### 故障排查
+
+| 问题 | 解决方案 |
+|------|----------|
+| `list_sessions` 返回空 | 调用 `maya_setup_guide(action="diagnose")` |
+| 端口被占用 | 关闭其他 Maya 实例，或换端口 |
+| userSetup.py 不生效 | 确认文件在正确的 scripts 目录，重启 Maya |
+| 防火墙拦截 | 确保 localhost:7001 可访问 |
 
 ### 3. 配置 MCP 客户端
 
