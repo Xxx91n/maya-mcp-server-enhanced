@@ -1,0 +1,21 @@
+# Normalize all text files to LF in the repo index and working tree.
+# .gitattributes takes precedence over core.autocrlf, so this stops
+# the global autocrlf=true from silently converting LF->CRLF on checkout.
+* text=auto eol=lf
+
+# Windows-native scripts must keep CRLF to run correctly.
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+*.cmd   text eol=crlf
+
+# Binary files — never normalize.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.whl   binary
+*.pyc   binary
