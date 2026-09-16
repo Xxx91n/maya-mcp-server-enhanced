@@ -7,6 +7,7 @@ file ops and constraints are all recorded on the Scene for assertions.
 
 from __future__ import annotations
 
+import json
 import math
 
 from . import runtime
@@ -174,23 +175,53 @@ def about(version=False, **kw):
 
 
 def file(*args, **kwargs):
+    """Stub cmds.file.
+
+    exportAll writes a REAL file (//Maya ASCII header + serialized scene)
+    so checkpoint tests exercise actual disk state; open restores the
+    scene graph from it and raises on non-ASCII content, like real Maya.
+    """
     sc = _s()
     sc.file_calls.append({"args": args, "kwargs": dict(kwargs)})
     if kwargs.get("query") or kwargs.get("q"):
-        if kwargs.get("sceneName") or kwargs.get("sn"):
+        if (kwargs.get("sceneName") or kwargs.get("sn")
+                or kwargs.get("expandName") or kwargs.get("exn")
+                or kwargs.get("absoluteName") or kwargs.get("an")):
             return sc.scene_path
+        return None
     if kwargs.get("rename"):
         sc.scene_path = kwargs["rename"]
         return sc.scene_path
     if kwargs.get("open") or kwargs.get("o"):
-        sc.scene_path = args[0]
+        path = args[0]
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        if "//Maya ASCII" not in text[:2048]:
+            raise RuntimeError(f"Cannot open {path}: not a Maya ASCII file")
+        sc.restore(json.loads(text.split("\n", 1)[1]))
+        sc.scene_path = path
         return sc.scene_path
     if kwargs.get("exportAll"):
-        return args[0] if args else ""
+        path = args[0]
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("//Maya ASCII 2024 scene (stub)\n")
+            fh.write(json.dumps(sc.serialize()))
+        return path
     if kwargs.get("save") or kwargs.get("saveAs"):
         sc.scene_path = args[0] if args else sc.scene_path
         return sc.scene_path
     return None
+
+
+def workspace(**kwargs):
+    """Stub cmds.workspace — returns the scene's workspace dir."""
+    sc = _s()
+    if kwargs.get("query") or kwargs.get("q"):
+        want_dir = (kwargs.get("rootDirectory") or kwargs.get("rd")
+                    or kwargs.get("directory") or kwargs.get("dir"))
+        if want_dir:
+            return sc.workspace_dir
+    return sc.workspace_dir
 
 
 def move(x, y=None, z=None, *objects, **kwargs):

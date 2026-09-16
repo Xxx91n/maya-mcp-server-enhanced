@@ -72,6 +72,7 @@ class Scene:
         self.warnings = []       # cmds.warning calls
         self.file_calls = []     # recorded cmds.file invocations
         self.deleted = []
+        self.workspace_dir = ""   # cmds.workspace(q, rootDirectory)
 
     # ---- construction helpers (test-facing API) ----
 
@@ -251,3 +252,72 @@ class Scene:
                 walk(c, c2node)
         walk(node, MMatrix())
         return box
+
+    # ---- persistence (stub cmds.file exportAll/open) ----
+
+    def serialize(self):
+        """Snapshot the scene graph into a JSON-able dict.
+
+        Mirrors exportAll semantics: the *memory* state is captured, not
+        whatever happens to be on disk under scene_path.
+        """
+        nodes = []
+        for n in self.all_nodes():
+            nodes.append({
+                "name": n.name,
+                "type": n.type,
+                "parent": self.long_name(n.parent) if n.parent else None,
+                "t": list(n.t),
+                "r": list(n.r),
+                "s": list(n.s),
+                "bbox": [list(n.bbox[0]), list(n.bbox[1])] if n.bbox else None,
+                "attrs": {
+                    k: list(v) if isinstance(v, (list, tuple)) else v
+                    for k, v in n.attrs.items()
+                },
+                "intermediate": n.intermediate,
+                "num_vertices": n.num_vertices,
+                "num_polygons": n.num_polygons,
+                "keyframes": n.keyframes,
+            })
+        return {
+            "nodes": nodes,
+            "connections": self.connections,
+            "set_members": self.set_members,
+            "current_time": self.current_time,
+            "playback_range": list(self.playback_range),
+        }
+
+    def restore(self, data):
+        """Replace scene contents with a serialized snapshot (file open).
+
+        Nodes arrive parent-first (all_nodes() walks depth-first from
+        roots), so each node's parent is already registered in by_path.
+        """
+        self.nodes = {}
+        self.roots = []
+        self.selection = []
+        by_path = {}
+        for nd in data["nodes"]:
+            parent = by_path[nd["parent"]] if nd["parent"] else None
+            node = self.add_node(nd["name"], nd["type"], parent=parent, exists_ok=True)
+            node.t = list(nd["t"])
+            node.r = list(nd["r"])
+            node.s = list(nd["s"])
+            node.bbox = (
+                (tuple(nd["bbox"][0]), tuple(nd["bbox"][1])) if nd["bbox"] else None
+            )
+            node.attrs = {
+                k: tuple(v) if isinstance(v, list) else v
+                for k, v in nd.get("attrs", {}).items()
+            }
+            node.intermediate = nd.get("intermediate", False)
+            node.num_vertices = nd.get("num_vertices", 8)
+            node.num_polygons = nd.get("num_polygons", 6)
+            node.keyframes = nd.get("keyframes", {})
+            path = (nd["parent"] + "|" + nd["name"]) if nd["parent"] else "|" + nd["name"]
+            by_path[path] = node
+        self.connections = {k: list(v) for k, v in data.get("connections", {}).items()}
+        self.set_members = {k: list(v) for k, v in data.get("set_members", {}).items()}
+        self.current_time = data.get("current_time", 1)
+        self.playback_range = list(data.get("playback_range", [1, 120]))

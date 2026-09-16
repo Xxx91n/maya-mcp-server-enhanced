@@ -550,20 +550,32 @@ result
 
     @mcp.tool
     async def scene_checkpoint(
-        name: str = "checkpoint",
+        name: str | None = None,
+        overwrite: bool = False,
         session_key: str | None = None,
     ) -> str:
-        """Save a scene checkpoint for disaster recovery.
+        """Save a real scene snapshot (exportAll of in-memory state).
 
-        Creates a timestamped .ma backup in a checkpoints/ directory
-        next to the scene file. Use before risky operations.
+        Writes a self-contained .ma into a checkpoints/ directory next to
+        the scene file. On untitled (never-saved) scenes an explicit name
+        is required and produces an ad-hoc snapshot under the Maya
+        workspace \u2014 returned with original_file_status="no_original_file"
+        and scene_rebound_to=null. Same-name checkpoints are rejected
+        unless overwrite=True (the old file is preserved via rename).
+
+        Honest bounds: the snapshot contains no undo history \u2014 after
+        scene_rollback, call scene_snapshot to rebuild context.
+        References are flattened (self-contained, no write-back).
+        Assumes one scene file per session.
 
         Args:
-            name: Human-readable checkpoint name.
+            name: Checkpoint name (^[A-Za-z0-9_-]+$). Required on untitled scenes.
+            overwrite: Replace a same-name checkpoint, preserving the old file.
             session_key: Maya session key.
 
         Returns:
-            Checkpoint info with path and object count.
+            Checkpoint info: filename, path, counts, original_file_status,
+            adhoc flag.
         """
         from maya_mcp_server.server import get_session_manager
 
@@ -571,25 +583,38 @@ result
         client = await manager.get_client(session_key)
         await _ensure_module_injected(client, session_key)
 
-        code = _scene_call("save_checkpoint", name)
+        code = _scene_call("save_checkpoint", name=name, overwrite=overwrite)
         result = await _execute_scene_code(client, code, session_key, use_cache=False)
         return json.dumps(result, indent=2)
 
     @mcp.tool
     async def scene_rollback(
         filename: str,
+        discard_current_state: bool = False,
         session_key: str | None = None,
     ) -> str:
-        """Rollback scene to a previously saved checkpoint.
+        """Open a checkpoint and rebind the scene to its original path (S2).
 
-        Automatically saves current state before rolling back.
+        Before opening, the current in-memory state is exported to an
+        auto_before_rollback safety snapshot; if that fails, the rollback
+        aborts \u2014 pass discard_current_state=True to escape (the result
+        reports safety_snapshot="skipped_by_user"). Untitled scenes and
+        ad-hoc snapshots have no original path, so the scene stays on the
+        checkpoint path (S1) and scene_rebound_to is null.
+
+        The snapshot carries no undo history \u2014 call scene_snapshot
+        afterwards to rebuild context.
 
         Args:
-            filename: Checkpoint filename from scene_checkpoint_list.
+            filename: Checkpoint filename from scene_checkpoint_list
+                (cp_*.ma or prev_*.ma).
+            discard_current_state: Escape hatch \u2014 proceed even if the
+                safety snapshot fails.
             session_key: Maya session key.
 
         Returns:
-            Rollback result with auto-backup info.
+            Structured result: success, scene_name_before/after,
+            original_file_status, scene_rebound_to, safety_snapshot.
         """
         from maya_mcp_server.server import get_session_manager
 
@@ -597,7 +622,10 @@ result
         client = await manager.get_client(session_key)
         await _ensure_module_injected(client, session_key)
 
-        code = _scene_call("rollback_to_checkpoint", filename)
+        code = _scene_call(
+            "rollback_to_checkpoint", filename,
+            discard_current_state=discard_current_state,
+        )
         result = await _execute_scene_code(client, code, session_key, use_cache=False)
         mark_dirty(session_key)
         return json.dumps(result, indent=2)
@@ -606,7 +634,10 @@ result
     async def scene_checkpoint_list(
         session_key: str | None = None,
     ) -> str:
-        """List all saved checkpoints for the current scene.
+        """List all saved checkpoints for the current scene state.
+
+        Saved scenes list <scene_dir>/checkpoints; untitled scenes list
+        the workspace ad-hoc snapshots (adhoc flag per entry).
 
         Args:
             session_key: Maya session key.
@@ -623,6 +654,7 @@ result
         code = _scene_call("list_checkpoints")
         result = await _execute_scene_code(client, code, session_key, use_cache=False)
         return json.dumps(result, indent=2)
+
 
     # ============================================================
     # P1: Camera / Shot Planning

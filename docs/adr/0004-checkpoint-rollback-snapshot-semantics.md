@@ -2,7 +2,7 @@
 
 checkpoint 由“复制磁盘文件”（拿不到未保存修改）改为 cmds.file(exportAll) 真快照：导出时刻内存态、自包含、落 checkpoints/ 目录。rollback = 打开快照 + 改名回原路径（S2 语义），但前置不变式：任何覆盖路径名操作之前，被覆盖内容必须已有内存态快照（auto_before_rollback 改用 exportAll 而非 copy2）；返回结构化场景身份（scene_name_before / scene_name_after / original_file_status / scene_rebound_to）。文档写明两个诚实边界：(a) 快照不含 undo 历史，回滚后须以 scene_snapshot 重建认知；(b) references 默认展平，快照自包含但不管引用回写。
 
-Status: accepted (2026-09-16)；refined by D-015 (2026-09-16)
+Status: accepted (2026-09-16)；refined by D-015 (2026-09-16)、D-016 (2026-09-16)
 
 ## Considered Options
 - 诚实降级为“磁盘备份”文案：否决——无人值守 agentic loop 下 VERIFY 会建立在假前提上（dirty 态 checkpoint 拿到旧态）。
@@ -18,3 +18,4 @@ Status: accepted (2026-09-16)；refined by D-015 (2026-09-16)
 - （D-015）T-03 必测边缘案例：checkpoints 路径已是文件/不可写 → 预检 + 错误透传；同名 checkpoint → 默认拒绝，overwrite:true 才覆盖且覆盖前旧文件 rename 保留；checkpoint 与 rollback 之间快照被外部删改 → exists 预检 + //Maya ASCII 头校验，报“快照已丢失”而非底层 open 错；rollback open 失败半残态 → 返回值定义 scene_name_after + 建议 agent 立即 scene_snapshot 重建认知。
 - （D-015）实现约束：sceneName 结果用 absoluteName 消歧（resolved/unresolved 双语义）；untitled 场景与 auto_before_rollback 的组合语义须显式定义（不得留给 Maya 默认）；所有 file 操作 prompt=False（GUI 模态弹窗会挂死 MCP 往返）；文档标注“单场景文件单会话”假设（多 session 对同文件 rollback 会互踩 rebind）。
 - （D-015）不做：retention 上限（YAGNI，list_checkpoints 返回 count 供自查）；独立“放弃当前状态”工具（同一破坏性操作不暴露两个入口）。
+- （D-016）文件名方案：cp_{name}.ma（常规）/ cp_adhoc_{name}.ma（untitled→<workspace>/checkpoints/）/ cp_auto_before_rollback_{ts}.ma（rollback 前安全快照）/ prev_{ts}_{filename}.ma（overwrite 保留件，经 preserved_as 披露、可 rollback）。rollback filename 白名单 ^(cp|prev)_[A-Za-z0-9_-]+\.ma$。

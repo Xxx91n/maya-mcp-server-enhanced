@@ -17,7 +17,7 @@ English | [中文](README.md)
 | 🧊 **Spatial Awareness** | `scene_snapshot` `scene_inspect` `scene_measure` | One-call full scene spatial model, precise distance/overlap/gap measurement |
 | 🎨 **Aesthetic Analysis** | `scene_aesthetics` | 5-dimension professional analysis: Color Theory (60-30-10), Spatial Composition (golden ratio/rule of thirds), Proportion & Scale (human ergonomics), Lighting Quality (3-point setup, fill ratio, shadow quality, illuminance distribution, color temperature grading, decay rate), Visual Flow |
 | 🎬 **Camera Planning** | `camera_create` `camera_orbit` | 8 industry-standard shot types + orbit animation |
-| 🛡️ **Disaster Recovery** | `scene_checkpoint` `scene_rollback` | Pre-operation snapshots, auto-rollback on failure |
+| 🛡️ **Disaster Recovery** | `scene_checkpoint` `scene_rollback` | exportAll in-memory snapshots, rollback rebinds the original path |
 | 🧠 **Scene Planning** | scene_plan | Holistic organization health, zone balance, layout optimization, conflict prevention, NL planning |
 | 📋 **Engineering Audit** | `scene_review` `scene_validate` | 11-dimension audit (0-100 score): spatial/overlaps/zones/5D-aesthetics/constraints/orphans/naming/componentization/conflicts/lighting/organization |
 | ⚡ **Code Execution** | `execute_code` `write_module` | Execute arbitrary Python code in Maya |
@@ -103,9 +103,10 @@ camera_orbit(center=[0, 100, 0], radius=500, frames=120)
 ### Disaster Recovery
 
 ```python
-scene_checkpoint(name="before_change")
+scene_checkpoint(name="before_change")   # in-memory exportAll snapshot
 scene_checkpoint_list()
-scene_rollback(filename="cp_20260629_120000_before_change.ma")
+scene_rollback(filename="cp_before_change.ma")  # auto safety snapshot, rebinds to original path
+# snapshots carry no undo history — call scene_snapshot() after a rollback
 ```
 
 ## CoS Format

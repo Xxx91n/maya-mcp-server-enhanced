@@ -26,11 +26,19 @@ src/maya_mcp_server/
 └── __main__.py            # Entry point
 
 tests/
+├── maya_stub/             # stub maya.cmds + OpenMaya + Scene graph (D-004/D-005)
+├── conftest.py            # maya_env fixture installs stub, binds maya_scene_module
+├── test_checkpoint_rollback.py  # T-03 checkpoint/rollback regression (ADR-0004/D-015)
 ├── test_client.py
+├── test_connection_guide.py
 ├── test_cos_formatter.py
+├── test_maya_scene_module.py    # module-level regressions on the stub
+├── test_maya_stub.py            # stub self-verification (math must stay honest)
+├── test_mayapy_smoke.py         # real-Maya tier, manual local only (-m mayapy)
 ├── test_prepare_code.py
 ├── test_scene_cache.py
 ├── test_scene_tools.py
+├── test_scene_tools_json.py     # tool-layer JSON arg passing + error passthrough
 ├── test_security.py
 └── test_session_manager.py
 ```

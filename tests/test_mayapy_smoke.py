@@ -42,3 +42,46 @@ def test_measure_roundtrip_in_real_maya(real_maya):
     real_maya.move(100, 0, 0, b)
     res = m.measure(a, b, "center")
     assert res["distance"] == pytest.approx(100, abs=0.01)
+
+
+def test_checkpoint_rollback_reference_edit_roundtrip(real_maya, tmp_path):
+    """ADR-0004/D-007: checkpoint->rollback roundtrip on a scene carrying a
+    reference edit. exportAll flattens references into a self-contained
+    snapshot; rollback must restore that state and rebind to the original
+    scene path (S2). Manual tier — never CI.
+    """
+    import maya_mcp_server.maya_scene_module as m
+
+    cmds = real_maya
+
+    # referenced file with one cube
+    ref_file = tmp_path / "ref_source.ma"
+    cmds.polyCube(name="GEO_ref_cube")
+    cmds.file(rename=str(ref_file))
+    cmds.file(save=True, type="mayaAscii", force=True, prompt=False)
+    cmds.file(new=True, force=True, prompt=False)
+
+    # main scene references it, then a reference edit moves the node
+    main_file = tmp_path / "main.ma"
+    cmds.file(rename=str(main_file))
+    cmds.file(str(ref_file), reference=True, namespace="t03ref", prompt=False)
+    ref_node = "t03ref:GEO_ref_cube"
+    assert cmds.objExists(ref_node)
+    cmds.move(5, 0, 0, ref_node)  # the reference edit
+    cmds.file(save=True, type="mayaAscii", force=True, prompt=False)
+
+    res = m.save_checkpoint("with_ref")
+    assert "error" not in res, res
+
+    # mutate after checkpoint
+    cmds.polyCube(name="GEO_after")
+
+    rb = m.rollback_to_checkpoint(res["filename"])
+    assert rb["success"] is True, rb
+    assert rb["scene_name_after"] == str(main_file) or rb["scene_name_after"].endswith("main.ma")
+    assert rb["scene_rebound_to"] is not None
+    assert rb["safety_snapshot"] != "skipped_by_user"
+    assert not cmds.objExists("GEO_after")
+    # flattened reference content must survive the roundtrip
+    survivors = cmds.ls("*GEO_ref_cube*") or []
+    assert survivors, "referenced node content lost after rollback"
