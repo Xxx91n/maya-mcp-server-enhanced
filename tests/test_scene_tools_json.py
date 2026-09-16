@@ -137,7 +137,7 @@ class TestJsonArgSerialization:
     async def test_quotes_in_checkpoint_name_verbatim(self, tools):
         seen = {}
 
-        def spy(name):
+        def spy(name=None, overwrite=False):
             seen["name"] = name
             return {"ok": True, "name": name}
 
@@ -149,14 +149,51 @@ class TestJsonArgSerialization:
     async def test_rollback_filename_verbatim(self, tools):
         seen = {}
 
-        def spy(fn):
-            seen["fn"] = fn
-            return {"success": True, "rolled_back_to": fn}
+        def spy(filename, discard_current_state=False):
+            seen["fn"] = filename
+            return {"success": True, "rolled_back_to": filename}
 
         tools.env.module.rollback_to_checkpoint = spy
         fn = 'cp_20250101_x"); pass #.ma'
         await tools.fns["scene_rollback"](filename=fn)
         assert seen["fn"] == fn
+
+    async def test_checkpoint_passes_overwrite_kwarg(self, tools):
+        seen = {}
+
+        def spy(name=None, overwrite=False):
+            seen["name"] = name
+            seen["overwrite"] = overwrite
+            return {"ok": True}
+
+        tools.env.module.save_checkpoint = spy
+        await tools.fns["scene_checkpoint"](name="v1", overwrite=True)
+        assert seen == {"name": "v1", "overwrite": True}
+
+    async def test_checkpoint_default_name_is_none(self, tools):
+        seen = {}
+
+        def spy(name=None, overwrite=False):
+            seen["name"] = name
+            return {"ok": True}
+
+        tools.env.module.save_checkpoint = spy
+        await tools.fns["scene_checkpoint"]()
+        assert seen["name"] is None, (
+            "default must reach the module as None so untitled scenes can error"
+        )
+
+    async def test_rollback_passes_discard_flag(self, tools):
+        seen = {}
+
+        def spy(filename, discard_current_state=False):
+            seen["filename"] = filename
+            seen["discard"] = discard_current_state
+            return {"success": True}
+
+        tools.env.module.rollback_to_checkpoint = spy
+        await tools.fns["scene_rollback"](filename="cp_x.ma", discard_current_state=True)
+        assert seen == {"filename": "cp_x.ma", "discard": True}
 
     async def test_scene_assert_expectations_json(self, tools):
         tools.env.scene.add_mesh("GEO_box", t=(1, 2, 3))

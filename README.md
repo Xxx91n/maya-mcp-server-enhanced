@@ -17,7 +17,7 @@
 | 🧊 **空间感知** | `scene_snapshot` `scene_inspect` `scene_measure` | 一次调用获取全场景空间模型，精确距离/重叠/间隙测量 |
 | 🎨 **审美分析** | `scene_aesthetics` | 5维专业分析：色彩理论(60-30-10)、空间构成(黄金比例/三分法)、比例尺度(人体工学)、光影质量(三点照明/填充比/阴影质量/照度分布/色温分级/衰减率)、视觉动线 |
 | 🎬 **镜头规划** | `camera_create` `camera_orbit` | 8 种行业标准镜头 + 环绕动画 |
-| 🛡️ **避灾回退** | `scene_checkpoint` `scene_rollback` | 操作前快照，失败自动回滚 |
+| 🛡️ **避灾回退** | `scene_checkpoint` `scene_rollback` `scene_checkpoint_list` | exportAll 内存态快照，回滚重绑原路径 |
 | 🧠 **大局观统筹** | scene_plan | 场景组织健康检查、区域平衡分析、布局优化建议、冲突预防、自然语言规划 |
 | 📋 **工程审核** | `scene_review` `scene_validate` | 11 维度审核（0-100 分）：空间/重叠/区域/审美5维/约束/孤儿/命名/组件化/冲突/光照质量/场景组织 |
 | ⚡ **代码执行** | `execute_code` `write_module` | 在 Maya 中执行任意 Python 代码 |
@@ -162,14 +162,16 @@ camera_orbit(center=[0, 100, 0], radius=500, frames=120)
 ### 避灾回退
 
 ```python
-# 保存检查点（操作前）
+# 保存检查点（操作前；快照=内存态 exportAll，不含 undo 历史）
 scene_checkpoint(name="before_renovation")
 
 # 列出所有检查点
 scene_checkpoint_list()
 
-# 回滚（自动备份当前状态）
-scene_rollback(filename="cp_20260629_120000_before_renovation.ma")
+# 回滚（先自动存安全快照，再把场景名重绑回原文件；
+# 回滚后请用 scene_snapshot 重建认知）
+# 边界：快照自包含——references 默认展平不回写；假定单场景文件单会话
+scene_rollback(filename="cp_before_renovation.ma")
 ```
 
 ## CoS 符号化格式

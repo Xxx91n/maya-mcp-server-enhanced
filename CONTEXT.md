@@ -48,6 +48,10 @@ _Avoid_: 文件备份、存档
 打开快照文件并显式重建场景身份；不变式——任何覆盖路径名操作之前，被覆盖内容必须已有内存态快照；返回值显式携带场景身份信息。
 _Avoid_: 恢复
 
+**ad-hoc 快照**:
+untitled（未保存）场景经显式 name 参数产出的标记性快照；不参与 S2 回滚语义——rollback 打开后停留快照路径（S1），返回 scene_rebound_to=null、original_file_status="no_original_file"。untitled 场景不带 name 的 checkpoint 调用默认报错。 快照落 <Maya workspace>/checkpoints/。
+_Avoid_: 无名场景快照
+
 ### 连接与注入
 
 **引导通道 (bootstrap channel)**:
