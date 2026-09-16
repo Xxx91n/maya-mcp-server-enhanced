@@ -46,10 +46,8 @@ class ErrorInfo(TypedDict):
 class ExecutionResult(TypedDict):
     """Result of remote code execution.
 
-    Note: stdout/stderr are delivered via MCP Resource subscriptions,
-    not in this result. Subscribe to:
-    - maya://sessions/{host}:{port}/stdout
-    - maya://sessions/{host}:{port}/stderr
+    Note: stdout/stderr are captured and exposed via the
+    maya://sessions/{session_key}/output MCP Resource, not in this result.
     """
 
     result: Any | None  # Captured result (None if ResultType.NONE)

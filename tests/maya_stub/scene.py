@@ -1,0 +1,253 @@
+"""Scene graph model backing the maya stub.
+
+A Scene holds nodes (transforms + shapes + shading engines + materials),
+a connection graph, and recorded side effects (constraints, keyframes,
+file ops) that tests can assert on.
+"""
+
+from __future__ import annotations
+
+from .math3d import MBoundingBox, MMatrix, MPoint, euler_from_matrix, trs_matrix
+
+
+LIGHT_TYPES = {
+    "spotLight", "pointLight", "directionalLight",
+    "areaLight", "volumeLight", "ambientLight",
+}
+SHAPE_TYPES = LIGHT_TYPES | {"mesh", "camera", "locator", "nurbsCurve", "joint"}
+
+
+class Node:
+    __slots__ = (
+        "scene", "name", "type", "parent", "children",
+        "t", "r", "s", "bbox", "attrs", "intermediate",
+        "num_vertices", "num_polygons", "keyframes",
+    )
+
+    def __init__(self, scene, name, ntype, parent=None):
+        self.scene = scene
+        self.name = name
+        self.type = ntype
+        self.parent = parent
+        self.children = []
+        self.t = [0.0, 0.0, 0.0]
+        self.r = [0.0, 0.0, 0.0]
+        self.s = [1.0, 1.0, 1.0]
+        self.bbox = None  # (min3, max3) object-space, shape nodes only
+        self.attrs = {}
+        self.intermediate = False
+        self.num_vertices = 8
+        self.num_polygons = 6
+        self.keyframes = {}
+
+    def path_nodes(self):
+        """Nodes root -> self inclusive."""
+        out = []
+        n = self
+        while n is not None:
+            out.append(n)
+            n = n.parent
+        out.reverse()
+        return out
+
+
+class Scene:
+    """A fake Maya scene: node table + DAG hierarchy + recorded calls."""
+
+    def __init__(self):
+        self.nodes = {}          # short name -> [Node] (dup short names possible)
+        self.roots = []
+        self.scene_path = ""     # cmds.file(q, sceneName)
+        self.linear_unit = "cm"
+        self.angular_unit = "deg"
+        self.time_unit = "film"
+        self.up_axis = "y"
+        self.current_time = 1
+        self.playback_range = [1, 120]
+        self.selection = []
+        self.constraints = []    # recorded aimConstraint calls
+        self.connections = {}    # "node.attr" -> [target node names]
+        self.set_members = {}    # shadingEngine -> [member names]
+        self.keyed = []          # (node, attribute) setKeyframe calls
+        self.warnings = []       # cmds.warning calls
+        self.file_calls = []     # recorded cmds.file invocations
+        self.deleted = []
+
+    # ---- construction helpers (test-facing API) ----
+
+    def _unique_name(self, name):
+        if name not in self.nodes:
+            return name
+        i = 1
+        while f"{name}{i}" in self.nodes:
+            i += 1
+        return f"{name}{i}"
+
+    def add_node(self, name, ntype, parent=None, exists_ok=False):
+        if isinstance(parent, str):
+            parent = self.resolve(parent)
+        if name in self.nodes and not exists_ok:
+            name = self._unique_name(name)
+        node = Node(self, name, ntype, parent)
+        self.nodes.setdefault(name, []).append(node)
+        if parent is not None:
+            parent.children.append(node)
+        else:
+            self.roots.append(node)
+        return node
+
+    def add_transform(self, name, t=(0, 0, 0), r=(0, 0, 0), s=(1, 1, 1), parent=None):
+        node = self.add_node(name, "transform", parent)
+        node.t, node.r, node.s = list(t), list(r), list(s)
+        return node
+
+    def add_shape(self, name, ntype, parent, bbox=None, **attrs):
+        node = self.add_node(name, ntype, parent)
+        node.bbox = bbox
+        node.attrs.update(attrs)
+        return node
+
+    def add_mesh(self, name, bbox_min=(-50, -50, -50), bbox_max=(50, 50, 50),
+                 t=(0, 0, 0), r=(0, 0, 0), s=(1, 1, 1), parent=None,
+                 num_vertices=8, num_polygons=6):
+        """Create transform + mesh shape child (Maya layout). Returns transform."""
+        tr = self.add_transform(name, t=t, r=r, s=s, parent=parent)
+        sh = self.add_shape(name + "Shape", "mesh", tr, bbox=(bbox_min, bbox_max))
+        sh.num_vertices = num_vertices
+        sh.num_polygons = num_polygons
+        return tr
+
+    def add_camera(self, name, t=(0, 0, 0), r=(0, 0, 0), parent=None):
+        tr = self.add_transform(name, t=t, r=r, parent=parent)
+        self.add_shape(name + "Shape", "camera", tr)
+        return tr
+
+    def add_light(self, name, ltype="spotLight", t=(0, 0, 0), r=(0, 0, 0),
+                  parent=None, **attrs):
+        tr = self.add_transform(name, t=t, r=r, parent=parent)
+        defaults = {
+            "color": (1.0, 1.0, 1.0), "intensity": 1.0,
+            "decayRate": 0, "useDepthMapShadow": 1,
+        }
+        if ltype == "spotLight":
+            defaults.update({"coneAngle": 40.0, "penumbraAngle": 10.0,
+                             "emitDiffuse": 1, "emitSpecular": 1})
+        if ltype == "areaLight":
+            defaults.update({"areaWidth": 10.0, "areaHeight": 10.0,
+                             "emitDiffuse": 1, "emitSpecular": 1})
+        defaults.update(attrs)
+        self.add_shape(name + "Shape", ltype, tr, **defaults)
+        return tr
+
+    def add_locator(self, name, t=(0, 0, 0), parent=None):
+        tr = self.add_transform(name, t=t, parent=parent)
+        self.add_shape(name + "Shape", "locator", tr)
+        return tr
+
+    def add_group(self, name, parent=None):
+        return self.add_transform(name, parent=parent)
+
+    def add_material(self, name, color=(0.5, 0.5, 0.5), assign_to=()):
+        """Material + shadingEngine + connections, like Maya's SG wiring."""
+        mat = self.add_node(name, "lambert")
+        mat.attrs["color"] = tuple(color)
+        sg = self.add_node(name + "SG", "shadingEngine")
+        self.connections[sg.name + ".surfaceShader"] = [mat.name]
+        members = []
+        for target in assign_to:
+            node = self.resolve(target)
+            shape = next((c for c in node.children if c.type in SHAPE_TYPES), node)
+            self.connections.setdefault(
+                shape.name + ".instObjGroups[0]", []).append(sg.name)
+            members.append(self.long_name(shape))
+        self.set_members[sg.name] = members
+        return mat
+
+    # ---- resolution ----
+
+    def resolve(self, ref):
+        """Resolve a name ref (long path |a|b or short name) to a Node."""
+        if isinstance(ref, Node):
+            return ref
+        ref = str(ref).split(".")[0]  # strip .attr
+        if ref.startswith("|"):
+            parts = [p for p in ref.split("|") if p]
+            node = None
+            level = self.roots
+            for p in parts:
+                node = next((n for n in level if n.name == p), None)
+                if node is None:
+                    raise RuntimeError(f"No object matches name: {ref}")
+                level = node.children
+            return node
+        matches = self.nodes.get(ref)
+        if not matches:
+            raise RuntimeError(f"No object matches name: {ref}")
+        if len(matches) > 1:
+            raise RuntimeError(f"Ambiguous object name: {ref}")
+        return matches[0]
+
+    def exists(self, ref):
+        try:
+            self.resolve(ref)
+            return True
+        except RuntimeError:
+            return False
+
+    def long_name(self, node):
+        return "|" + "|".join(n.name for n in node.path_nodes())
+
+    def all_nodes(self):
+        out = []
+        def walk(n):
+            out.append(n)
+            for c in n.children:
+                walk(c)
+        for r in self.roots:
+            walk(r)
+        return out
+
+    def transforms(self):
+        return [n for n in self.all_nodes() if n.type == "transform"]
+
+    # ---- matrices ----
+
+    def local_matrix(self, node):
+        return trs_matrix(node.t, node.r, node.s)
+
+    def inclusive_matrix(self, node):
+        """world = p * L_self * L_parent * ... * L_root (row-vector)."""
+        chain = node.path_nodes()  # [root .. self]
+        acc = MMatrix()
+        for n in chain[::-1]:  # L_self * L_parent * ... * L_root
+            acc = acc * self.local_matrix(n)
+        return acc
+
+    def world_position(self, node):
+        m = self.inclusive_matrix(node)
+        return (m[12], m[13], m[14])
+
+    def world_rotation(self, node):
+        return euler_from_matrix(self.inclusive_matrix(node))
+
+    def object_bbox(self, node):
+        """MFnDagNode.boundingBox: shape -> stored; transform -> union of
+        descendant shape bboxes transformed into this node's local space."""
+        box = MBoundingBox()
+        if node.type in SHAPE_TYPES and node.bbox is not None:
+            box.expand(MPoint(*node.bbox[0]))
+            box.expand(MPoint(*node.bbox[1]))
+            return box
+        # transform: gather descendant shapes into node-local space
+        def walk(n, m_to_node):
+            for c in n.children:
+                rel = m_to_node  # matrix mapping c-local -> node-local
+                c_local = self.local_matrix(c)
+                c2node = c_local * rel  # p * L_c * (rest)
+                if c.type in SHAPE_TYPES and c.bbox is not None:
+                    cb = MBoundingBox(*c.bbox)
+                    for corner in cb.corners():
+                        box.expand(corner * c2node)
+                walk(c, c2node)
+        walk(node, MMatrix())
+        return box

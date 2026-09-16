@@ -1,0 +1,272 @@
+"""Regression tests for maya_scene_module running on the maya stub.
+
+Each test pins a P0/P1 fix from the grill handoff (rui.txt). The stub's
+matrix/bbox math is verified independently in test_maya_stub.py, so
+failures here mean the production module is wrong — not the harness.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+
+import pytest
+
+
+# ------------------------------------------------------------
+# P0-4: world bbox must use all 8 corners (measure + conflicts)
+# ------------------------------------------------------------
+
+class TestWorldBbox:
+    def test_measure_bbox_mode_rotated_object(self, maya_env):
+        # Corner-at-origin 2x1x1 box rotated 45 deg about Y.
+        # True world extents: x in [0, 2.121], z in [-1.414, 0.707].
+        maya_env.scene.add_mesh(
+            "GEO_rot", bbox_min=(0, 0, 0), bbox_max=(2, 1, 1), r=(0, 45, 0)
+        )
+        # Wall slab separated on +Z: z in [0.8, 1.0], x overlaps, y overlaps
+        maya_env.scene.add_mesh(
+            "GEO_wall", bbox_min=(0, 0, 0), bbox_max=(2, 1, 0.2),
+            t=(0, 0, 0.8),
+        )
+        m = maya_env.module.measure("GEO_rot", "GEO_wall", "bbox")
+        gaps = m["details"]["gaps_xyz"]
+        # True z gap = 0.8 - 0.707 = ~0.093; naive min*M gives gap 0.8
+        assert gaps[2] == pytest.approx(0.8 - math.sqrt(2) / 2, abs=1e-2)
+        assert m["bbox_overlap"] is False
+
+    def test_measure_center_mode(self, maya_env):
+        maya_env.scene.add_mesh("GEO_a", t=(10, 0, 0))
+        maya_env.scene.add_mesh("GEO_b", t=(0, 0, 30))
+        m = maya_env.module.measure("GEO_a", "GEO_b", "center")
+        assert m["distance"] == pytest.approx(math.sqrt(100 + 900), abs=1e-3)
+
+    def test_conflicts_uses_world_bbox(self, maya_env):
+        # Rotated box: true world z range [-1.414, 0.707].
+        maya_env.scene.add_mesh(
+            "GEO_rot", bbox_min=(0, 0, 0), bbox_max=(2, 1, 1), r=(0, 45, 0)
+        )
+        # Wall whose CENTER (z=-1.25) is inside the rotated box's true bbox
+        # but OUTSIDE the naive translate-only bbox (z in [0, 1]).
+        maya_env.scene.add_mesh(
+            "GEO_wall", bbox_min=(-1, -0.5, -0.1), bbox_max=(1, 0.5, 0.1),
+            t=(1, 0.5, -1.25),
+        )
+        res = maya_env.module.scene_review(["conflicts"])
+        conflicts = res["checks"]["conflicts"]
+        assert conflicts["count"] >= 1, (
+            "rotated-object penetration must be detected via world bbox"
+        )
+
+
+# ------------------------------------------------------------
+# P1: scene_assert exists:false + bbox_min
+# ------------------------------------------------------------
+
+class TestSceneAssert:
+    def test_exists_false_missing_object_passes(self, maya_env):
+        res = maya_env.module.assert_scene_state(
+            json.dumps({"ghost_obj": {"exists": False}})
+        )
+        assert res["passed"] is True
+        assert res["passed_count"] == 1
+
+    def test_exists_false_present_object_fails(self, maya_env):
+        maya_env.scene.add_mesh("GEO_box")
+        res = maya_env.module.assert_scene_state(
+            json.dumps({"GEO_box": {"exists": False}})
+        )
+        assert res["passed"] is False
+        assert any(mm["property"] == "existence" for mm in res["mismatches"])
+
+    def test_exists_true_present_passes(self, maya_env):
+        maya_env.scene.add_mesh("GEO_box")
+        res = maya_env.module.assert_scene_state(
+            json.dumps({"GEO_box": {"exists": True}})
+        )
+        assert res["passed"] is True
+
+    def test_exists_true_missing_fails(self, maya_env):
+        res = maya_env.module.assert_scene_state(
+            json.dumps({"ghost": {"exists": True}})
+        )
+        assert res["passed"] is False
+
+    def test_bbox_min_checked(self, maya_env):
+        maya_env.scene.add_mesh(
+            "GEO_box", bbox_min=(-50, -50, -50), bbox_max=(50, 50, 50)
+        )
+        res = maya_env.module.assert_scene_state(
+            json.dumps({"GEO_box": {"bbox_min": [-50, -50, -50]}})
+        )
+        assert res["passed"] is True
+        res2 = maya_env.module.assert_scene_state(
+            json.dumps({"GEO_box": {"bbox_min": [0, 0, 0]}})
+        )
+        assert res2["passed"] is False
+        assert any(mm["property"] == "bbox_min" for mm in res2["mismatches"])
+
+    def test_position_check(self, maya_env):
+        maya_env.scene.add_mesh("GEO_box", t=(10, 0, 5))
+        res = maya_env.module.assert_scene_state(
+            json.dumps({"GEO_box": {"position": [10, 0, 5]}})
+        )
+        assert res["passed"] is True
+
+
+# ------------------------------------------------------------
+# P0-5: check_constraints must catch penetration + disclose sampling
+# ------------------------------------------------------------
+
+class TestConstraints:
+    def test_min_clearance_detects_penetration(self, maya_env):
+        # Two overlapping boxes: clearance distance is NEGATIVE.
+        maya_env.scene.add_mesh(
+            "GEO_a", bbox_min=(-50, -50, -50), bbox_max=(50, 50, 50)
+        )
+        maya_env.scene.add_mesh(
+            "GEO_b", bbox_min=(-50, -50, -50), bbox_max=(50, 50, 50),
+            t=(20, 0, 0),
+        )
+        res = maya_env.module.check_constraints(
+            [{"type": "min_clearance", "value": 10}]
+        )
+        assert res["passed"] is False, (
+            "penetrating objects (negative clearance) must violate min_clearance"
+        )
+        assert any(v["type"] == "min_clearance" for v in res["violations"])
+
+    def test_min_clearance_ok_when_separated(self, maya_env):
+        maya_env.scene.add_mesh("GEO_a", t=(0, 0, 0))
+        maya_env.scene.add_mesh("GEO_b", t=(1000, 0, 0))
+        res = maya_env.module.check_constraints(
+            [{"type": "min_clearance", "value": 10}]
+        )
+        assert res["passed"] is True
+
+    def test_sampling_disclosed(self, maya_env):
+        # 30 transforms -> pair window (i+20) truncates some pairs
+        for i in range(30):
+            maya_env.scene.add_mesh(f"GEO_obj{i:02d}", t=(i * 500, 0, 0))
+        res = maya_env.module.check_constraints(
+            [{"type": "no_overlap"}]
+        )
+        assert "skipped" in res or "sampling" in res, (
+            "truncated pair-scan must disclose how much was skipped"
+        )
+
+    def test_errored_measure_no_ghost_violation(self, maya_env):
+        # Two same-named meshes under different parents -> short-name
+        # resolution is ambiguous -> measure() returns an error dict whose
+        # distance field is 0.0. That must NOT become a ghost violation.
+        # Forge an ambiguous short-name state: two same-named nodes.
+        # measure("dup", ...) then fails to resolve -> error dict -> must
+        # be skipped, not turned into a ghost violation via distance 0.0.
+        maya_env.scene.add_node("dup", "transform", exists_ok=True)
+        maya_env.scene.add_node("dup", "transform", exists_ok=True)
+        res = maya_env.module.check_constraints(
+            [{"type": "min_clearance", "value": 10},
+             {"type": "no_overlap"}]
+        )
+        assert res["passed"] is True
+        assert res["violations"] == []
+
+
+# ------------------------------------------------------------
+# Zone coverage (total_objects) + sampling disclosure in review
+# ------------------------------------------------------------
+
+class TestZoneCoverage:
+    def test_coverage_not_negative(self, maya_env):
+        # 3 zoned objects + 5 unassigned => coverage 3/8 = 0.375
+        maya_env.scene.add_mesh("GEO_door_a")      # entrance pattern
+        maya_env.scene.add_mesh("GEO_shelf_a")    # display pattern
+        maya_env.scene.add_mesh("GEO_wall_a")     # shell pattern
+        for i in range(5):
+            maya_env.scene.add_mesh(f"random_{i}")
+        res = maya_env.module.scene_plan()
+        coverage = res["zone_analysis"]["coverage"]
+        assert coverage == pytest.approx(0.375, abs=1e-3), (
+            "coverage must be unassigned/total, not unassigned/1"
+        )
+
+    def test_get_zone_map_reports_total(self, maya_env):
+        maya_env.scene.add_mesh("GEO_door_a")
+        maya_env.scene.add_mesh("random_1")
+        zd = maya_env.module.get_zone_map()
+        assert zd["total_objects"] == 2
+        assert zd["unassigned_count"] == 1
+
+
+class TestSamplingDisclosure:
+    def test_overlaps_checked_skipped(self, maya_env):
+        for i in range(90):  # over the 80-object sample cap
+            maya_env.scene.add_mesh(f"GEO_obj{i:02d}", t=(i * 1000, 0, 0))
+        res = maya_env.module.scene_review(["overlaps"])
+        check = res["checks"]["overlaps"]
+        assert check["checked"] == 80
+        assert check["skipped"] == 10
+
+    def test_overlaps_no_skip_under_cap(self, maya_env):
+        for i in range(3):
+            maya_env.scene.add_mesh(f"GEO_obj{i}", t=(i * 1000, 0, 0))
+        res = maya_env.module.scene_review(["overlaps"])
+        assert res["checks"]["overlaps"]["skipped"] == 0
+
+    def test_conflicts_checked_skipped(self, maya_env):
+        for i in range(70):  # over the 60-object cap
+            maya_env.scene.add_mesh(f"GEO_obj{i:02d}", t=(i * 1000, 0, 0))
+        res = maya_env.module.scene_review(["conflicts"])
+        check = res["checks"]["conflicts"]
+        assert check["checked"] == 60
+        assert check["skipped"] == 10
+
+    def test_aesthetics_sampling(self, maya_env):
+        for i in range(210):  # over the 200-object cap
+            maya_env.scene.add_mesh(f"GEO_obj{i:03d}", t=(i * 1000, 0, 0))
+        res = maya_env.module.analyze_aesthetics()
+        assert "sampling" in res
+        assert res["sampling"]["skipped"] == 10
+
+
+# ------------------------------------------------------------
+# P0-6: camera_orbit must constrain to a center locator
+# ------------------------------------------------------------
+
+class TestOrbitCamera:
+    def test_orbit_creates_center_locator_and_constraint(self, maya_env):
+        res = maya_env.module.create_orbit_camera(
+            [10, 5, 0], radius=100, frames=120, name="CAM_orbit"
+        )
+        assert "error" not in res
+        assert res["warnings"] == []
+        # A locator must exist near the requested center
+        loc = maya_env.scene.resolve(res["center_locator"])
+        assert loc.name.startswith(("LOC_", "CAM_orbit"))
+        wx, wy, wz = maya_env.scene.world_position(loc)
+        assert (wx, wy, wz) == pytest.approx((10, 5, 0))
+        # An aim constraint targeting that locator must exist
+        assert maya_env.scene.constraints, "aim constraint never created"
+        assert maya_env.scene.constraints[-1]["target"] == loc.name
+
+    def test_orbit_aim_failure_surfaces(self, maya_env, monkeypatch):
+        def boom(*a, **k):
+            raise RuntimeError("constraint engine down")
+
+        monkeypatch.setattr(maya_env.cmds, "aimConstraint", boom)
+        res = maya_env.module.create_orbit_camera(
+            [0, 0, 0], radius=50, frames=60, name="CAM_orb3"
+        )
+        assert res["warnings"], "aimConstraint failure must surface in result"
+        assert "constraint engine down" in res["warnings"][0]
+        assert maya_env.scene.warnings, "cmds.warning must be called"
+
+    def test_orbit_keyframes_set(self, maya_env):
+        res = maya_env.module.create_orbit_camera(
+            [0, 0, 0], radius=50, frames=60, name="CAM_orb2"
+        )
+        cam = maya_env.scene.resolve(res["camera"])
+        assert res["warnings"] == []
+        assert len(maya_env.scene.keyed) >= 3
+        assert all(node == cam.name for node, _attr in maya_env.scene.keyed)
+        assert len(maya_env.scene.keyed) >= 3

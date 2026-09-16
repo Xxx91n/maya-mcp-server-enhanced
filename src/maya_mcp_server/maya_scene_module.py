@@ -11,6 +11,7 @@ import json
 import math
 import re
 from collections import defaultdict
+from typing import Any
 
 import maya.api.OpenMaya as om2  # noqa: N813
 import maya.cmds as cmds
@@ -18,27 +19,27 @@ import maya.cmds as cmds
 
 # --- Internal helpers ---
 
-def _round3(val):
+def _round3(val: float) -> float:
     """Round float to 3 decimal places."""
     return round(float(val), 3)
 
 
-def _round3_list(vals):
+def _round3_list(vals: Any) -> list[float]:
     """Round a list of floats."""
     return [_round3(v) for v in vals]
 
 
-def _vec3_to_list(p):
+def _vec3_to_list(p: "om2.MPoint | om2.MVector") -> list[float]:
     """Convert MPoint/MVector to [x,y,z]."""
     return [_round3(p[0]), _round3(p[1]), _round3(p[2])]
 
 
-def _matrix_to_pos(matrix):
+def _matrix_to_pos(matrix: "om2.MMatrix") -> list[float]:
     """Extract translation from MMatrix."""
     return [_round3(matrix[12]), _round3(matrix[13]), _round3(matrix[14])]
 
 
-def _classify_node(dag):
+def _classify_node(dag: "om2.MDagPath") -> str:
     """Classify a DAG node into a type string."""
     try:
         fn = om2.MFnDagNode(dag)
@@ -75,7 +76,7 @@ def _classify_node(dag):
         return "unknown"
 
 
-def _get_material_for_dag(dag):
+def _get_material_for_dag(dag: "om2.MDagPath") -> "str | None":
     """Get material name for a DAG node."""
     try:
         fn = om2.MFnDagNode(dag)
@@ -101,7 +102,7 @@ def _get_material_for_dag(dag):
     return None
 
 
-def _get_mesh_stats(dag):
+def _get_mesh_stats(dag: "om2.MDagPath") -> dict[str, int]:
     """Get vertex and face count for a mesh DAG node."""
     try:
         dag_path = om2.MDagPath.getAPathTo(dag)
@@ -114,7 +115,7 @@ def _get_mesh_stats(dag):
         return {"v": 0, "f": 0}
 
 
-def _get_bbox_size(bbox):
+def _get_bbox_size(bbox: "om2.MBoundingBox") -> list[float]:
     """Get [w, h, d] from MBoundingBox."""
     mn = bbox.min
     mx = bbox.max
@@ -125,12 +126,49 @@ def _get_bbox_size(bbox):
     ]
 
 
-def _point_distance(a, b):
+def _point_distance(a: "om2.MPoint", b: "om2.MPoint") -> float:
     """Euclidean distance between two MPoints."""
     dx = a[0] - b[0]
     dy = a[1] - b[1]
     dz = a[2] - b[2]
     return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+
+# Sampling caps. Any analysis path that truncates MUST disclose how much
+# it examined vs skipped (checked/skipped fields) — no silent partial scans.
+_SAMPLE_AESTHETICS = 200
+_SAMPLE_OVERLAPS = 80
+_SAMPLE_OVERLAP_WINDOW = 30
+_SAMPLE_CONFLICTS = 60
+_SAMPLE_LAYOUT = 100
+_SAMPLE_LAYOUT_WINDOW = 20
+_SAMPLE_CONSTRAINT_WINDOW = 20
+_SAMPLE_DEPTH = 30
+
+
+def _world_bbox(dag: "om2.MDagPath") -> "om2.MBoundingBox":
+    """World-space AABB for a DAG node.
+
+    Transforms all 8 corners of the object-space bounding box by the
+    inclusive (world) matrix. This is the ONLY correct way to get a world
+    AABB under rotation/scale — transforming just min and max produces
+    wrong bounds for any non-axis-aligned object.
+
+    Returns:
+        om2.MBoundingBox in world space.
+    """
+    fn = om2.MFnDagNode(dag)
+    bbox = fn.boundingBox
+    wm = dag.inclusiveMatrix()
+    out = om2.MBoundingBox()
+    for i in range(8):
+        corner = om2.MPoint(
+            bbox.min[0] if i & 1 else bbox.max[0],
+            bbox.min[1] if i & 2 else bbox.max[1],
+            bbox.min[2] if i & 4 else bbox.max[2],
+        )
+        out.expand(corner * wm)
+    return out
 
 
 # --- Public API ---
@@ -330,21 +368,18 @@ def get_zone_map(patterns=None) -> dict:
 
         if matched_zone:
             zones[matched_zone]["objects"].append(short_name)
-            # Update zone bbox
+            # Update zone bbox (world space — 8-corner transform)
             try:
                 sel_list = om2.MSelectionList()
                 sel_list.add(tname)
                 dag = sel_list.getDagPath(0)
-                fn = om2.MFnDagNode(dag)
-                bbox = fn.boundingBox
-                mn = bbox.min
-                mx = bbox.max
+                wb = _world_bbox(dag)
                 for i in range(3):
                     zones[matched_zone]["bbox_min"][i] = min(
-                        zones[matched_zone]["bbox_min"][i], mn[i]
+                        zones[matched_zone]["bbox_min"][i], wb.min[i]
                     )
                     zones[matched_zone]["bbox_max"][i] = max(
-                        zones[matched_zone]["bbox_max"][i], mx[i]
+                        zones[matched_zone]["bbox_max"][i], wb.max[i]
                     )
             except Exception:
                 pass
@@ -371,7 +406,11 @@ def get_zone_map(patterns=None) -> dict:
             zone["bbox_max"] = [0, 0, 0]
         result_zones.append(zone)
 
-    return {"zones": result_zones, "unassigned_count": len(unassigned)}
+    return {
+        "zones": result_zones,
+        "unassigned_count": len(unassigned),
+        "total_objects": len(transforms),
+    }
 
 
 def get_spatial_index(max_neighbors=8, max_distance=None) -> dict:
@@ -509,25 +548,19 @@ def measure(obj_a, obj_b, mode="center") -> dict:
         sel_a = om2.MSelectionList()
         sel_a.add(obj_a)
         dag_a = sel_a.getDagPath(0)
-        fn_a = om2.MFnDagNode(dag_a)
-        bbox_a = fn_a.boundingBox
-        pos_a = dag_a.inclusiveMatrix()
 
         sel_b = om2.MSelectionList()
         sel_b.add(obj_b)
         dag_b = sel_b.getDagPath(0)
-        fn_b = om2.MFnDagNode(dag_b)
-        bbox_b = fn_b.boundingBox
-        pos_b = dag_b.inclusiveMatrix()
     except Exception as e:
         result["error"] = str(e)
         return result
 
-    # Transform bboxes to world space
-    world_min_a = bbox_a.min * pos_a
-    world_max_a = bbox_a.max * pos_a
-    world_min_b = bbox_b.min * pos_b
-    world_max_b = bbox_b.max * pos_b
+    # World-space AABBs via all 8 local-bbox corners (rotation-safe)
+    wb_a = _world_bbox(dag_a)
+    wb_b = _world_bbox(dag_b)
+    world_min_a, world_max_a = wb_a.min, wb_a.max
+    world_min_b, world_max_b = wb_b.min, wb_b.max
 
     # Center points
     center_a = om2.MPoint(
@@ -597,16 +630,22 @@ def measure(obj_a, obj_b, mode="center") -> dict:
         }
 
     elif mode == "clearance":
-        # Clearance = surface distance, negative means overlap
-        # On each axis
-        clearances = []
+        # Signed AABB separation distance.
+        # Positive: euclidean distance across the separating axes.
+        # Negative: penetration depth (min translation needed to separate).
+        gaps = []
         for i in range(3):
-            c = max(world_min_a[i], world_min_b[i]) - min(world_max_a[i], world_max_b[i])
-            clearances.append(_round3(c))
-        # Minimum clearance across axes
-        min_clearance = min(clearances)
-        result["distance"] = _round3(min_clearance)
-        result["details"] = {"clearances_xyz": clearances}
+            gaps.append(
+                max(world_min_a[i], world_min_b[i])
+                - min(world_max_a[i], world_max_b[i])
+            )
+        if any(g >= 0 for g in gaps):
+            dist = math.sqrt(sum(max(0.0, g) ** 2 for g in gaps))
+        else:
+            dist = max(gaps)  # all negative: least-penetrating axis
+        result["distance"] = _round3(dist)
+        result["bbox_overlap"] = all(g < 0 for g in gaps)
+        result["details"] = {"clearances_xyz": [_round3(g) for g in gaps]}
 
     return result
 
@@ -708,13 +747,17 @@ def assert_scene_state(expectations_json) -> dict:
             dag = sel_list.getDagPath(0)
             fn = om2.MFnDagNode(dag)
         except Exception:
-            mismatches.append({
-                "object": obj_name,
-                "property": "existence",
-                "expected": "exists",
-                "actual": "not found",
-            })
             checked += 1
+            if expected.get("exists") is False:
+                # exists:false on a missing object is a pass
+                passed += 1
+            else:
+                mismatches.append({
+                    "object": obj_name,
+                    "property": "existence",
+                    "expected": "exists",
+                    "actual": "not found",
+                })
             continue
 
         # Check position
@@ -761,6 +804,29 @@ def assert_scene_state(expectations_json) -> dict:
                 mismatches.append({
                     "object": obj_name,
                     "property": "bbox_max",
+                    "error": str(e),
+                })
+
+        # Check bbox_min
+        if "bbox_min" in expected:
+            checked += 1
+            try:
+                bbox = fn.boundingBox
+                actual_min = _vec3_to_list(bbox.min)
+                exp_min = expected["bbox_min"]
+                if any(abs(a - e) > 1.0 for a, e in zip(actual_min, exp_min)):
+                    mismatches.append({
+                        "object": obj_name,
+                        "property": "bbox_min",
+                        "expected": exp_min,
+                        "actual": actual_min,
+                    })
+                else:
+                    passed += 1
+            except Exception as e:
+                mismatches.append({
+                    "object": obj_name,
+                    "property": "bbox_min",
                     "error": str(e),
                 })
 
@@ -817,6 +883,8 @@ def check_constraints(rules):
     """
     violations = []
     checked = 0
+    pairs_checked = 0
+    pairs_total = 0
 
     for rule in rules:
         rtype = rule.get("type", "")
@@ -836,8 +904,10 @@ def check_constraints(rules):
                         break
                 transforms = [t for t in transforms if t.split("|")[-1] in zone_names]
 
+            pairs_total += len(transforms) * (len(transforms) - 1) // 2
             for i in range(len(transforms)):
-                for j in range(i + 1, min(len(transforms), i + 20)):
+                for j in range(i + 1, min(len(transforms), i + _SAMPLE_CONSTRAINT_WINDOW)):
+                    pairs_checked += 1
                     try:
                         m = measure(
                             transforms[i].split("|")[-1],
@@ -845,7 +915,10 @@ def check_constraints(rules):
                             "clearance"
                         )
                         checked += 1
-                        if m.get("distance", 999) < value and m.get("distance", 999) > 0:
+                        # Negative clearance = penetration — that IS a violation.
+                        # Skip errored measurements: they carry distance 0.0
+                        # and would report a ghost penetration otherwise.
+                        if "error" not in m and m.get("distance", 999) < value:
                             violations.append({
                                 "type": "min_clearance",
                                 "objects": [transforms[i].split("|")[-1], transforms[j].split("|")[-1]],
@@ -869,8 +942,10 @@ def check_constraints(rules):
             transforms = cmds.ls(type="transform", long=True) or []
             if obj_list:
                 transforms = [t for t in transforms if t.split("|")[-1] in obj_list]
+            pairs_total += len(transforms) * (len(transforms) - 1) // 2
             for i in range(len(transforms)):
-                for j in range(i + 1, min(len(transforms), i + 20)):
+                for j in range(i + 1, min(len(transforms), i + _SAMPLE_CONSTRAINT_WINDOW)):
+                    pairs_checked += 1
                     try:
                         m = measure(
                             transforms[i].split("|")[-1],
@@ -878,7 +953,7 @@ def check_constraints(rules):
                             "bbox"
                         )
                         checked += 1
-                        if m.get("bbox_overlap", False):
+                        if "error" not in m and m.get("bbox_overlap", False):
                             violations.append({
                                 "type": "overlap",
                                 "objects": [transforms[i].split("|")[-1], transforms[j].split("|")[-1]],
@@ -909,6 +984,11 @@ def check_constraints(rules):
         "checked": checked,
         "violations": violations,
         "violation_count": len(violations),
+        "sampling": {
+            "pair_window": _SAMPLE_CONSTRAINT_WINDOW,
+            "pairs_checked": pairs_checked,
+            "pairs_skipped": max(0, pairs_total - pairs_checked),
+        },
     }
 
 
@@ -1104,7 +1184,7 @@ def create_camera_shot(target, shot_type="medium", name="shot_cam", angle=None):
         focalLength=shot["focal_length"],
         horizontalFilmAperture=1.417,  # 35mm
     )
-    cam_transform = cmds.rename(cam_transform, name)
+    cam_transform = cmds.rename(cam_transform, name) or name
 
     cmds.move(cam_x, cam_y, cam_z, cam_transform)
 
@@ -1156,7 +1236,12 @@ def create_orbit_camera(center, radius=500, frames=120, name="orbit_cam"):
     import math
 
     cam_transform, cam_shape = cmds.camera(name=name, focalLength=35)
-    cam_transform = cmds.rename(cam_transform, name)
+    cam_transform = cmds.rename(cam_transform, name) or name
+
+    # Orbit pivot: locator at the requested center, then aim-constrain to it
+    loc = cmds.spaceLocator(name="LOC_%s_target" % name)
+    loc_transform = loc[0]
+    cmds.move(center[0], center[1], center[2], loc_transform)
 
     # Set keyframes for circular orbit
     step = max(1, frames // 30)  # Key every N frames for smooth orbit
@@ -1175,26 +1260,30 @@ def create_orbit_camera(center, radius=500, frames=120, name="orbit_cam"):
     cmds.select(cam_transform)
     cmds.keyTangent(edit=True, itt="auto", ott="auto")
 
-    # Aim constraint at center
+    # Aim constraint at the center locator — failures surface, never swallow
+    warnings = []
     try:
         cmds.aimConstraint(
-            None, cam_transform,
+            loc_transform, cam_transform,
             aimVector=[0, 0, -1],
             upVector=[0, 1, 0],
             worldUpType="scene",
         )
-    except Exception:
-        pass
+    except Exception as e:
+        cmds.warning("create_orbit_camera: aimConstraint failed: %s" % e)
+        warnings.append("aimConstraint failed: %s" % e)
 
     # Set playback range
     cmds.playbackOptions(min=1, max=frames)
 
     return {
         "camera": cam_transform,
+        "center_locator": loc_transform,
         "center": center,
         "radius": radius,
         "frames": frames,
         "keyframe_step": step,
+        "warnings": warnings,
     }
 
 
@@ -1266,26 +1355,27 @@ def analyze_aesthetics():
     scene_min = [float("inf")] * 3
     scene_max = [float("-inf")] * 3
 
-    for t in transforms[:200]:
+    sampled = transforms[:_SAMPLE_AESTHETICS]
+    for t in sampled:
         try:
             sel = om2.MSelectionList()
             sel.add(t)
             dag = sel.getDagPath(0)
             fn = om2.MFnDagNode(dag)
-            bbox = fn.boundingBox
             wm = dag.inclusiveMatrix()
+            wb = _world_bbox(dag)
 
             pos = [wm[12], wm[13], wm[14]]
-            size_x = abs(bbox.max[0] - bbox.min[0])
-            size_y = abs(bbox.max[1] - bbox.min[1])
-            size_z = abs(bbox.max[2] - bbox.min[2])
+            size_x = abs(wb.max[0] - wb.min[0])
+            size_y = abs(wb.max[1] - wb.min[1])
+            size_z = abs(wb.max[2] - wb.min[2])
 
             if size_x < 0.01 and size_y < 0.01 and size_z < 0.01:
                 continue
 
             for axis in range(3):
-                scene_min[axis] = min(scene_min[axis], pos[axis] - [size_x, size_y, size_z][axis] / 2)
-                scene_max[axis] = max(scene_max[axis], pos[axis] + [size_x, size_y, size_z][axis] / 2)
+                scene_min[axis] = min(scene_min[axis], wb.min[axis])
+                scene_max[axis] = max(scene_max[axis], wb.max[axis])
 
             mat = _get_material_for_dag(dag)
             mat_color = None
@@ -1390,7 +1480,13 @@ def analyze_aesthetics():
     except Exception:
         pass
 
-    return _compute_full_aesthetic_score(materials, objects, scene_bounds, lights, zone_map)
+    result = _compute_full_aesthetic_score(materials, objects, scene_bounds, lights, zone_map)
+    result["sampling"] = {
+        "checked": len(sampled),
+        "skipped": len(transforms) - len(sampled),
+        "object_limit": _SAMPLE_AESTHETICS,
+    }
+    return result
 
 
 def _compute_full_aesthetic_score(materials, objects, scene_bounds, lights, zone_map):
@@ -2341,10 +2437,12 @@ def scene_review(checks=None):
         max_score += 10
         pts = 10
         overlap_pairs = []
-        sample = transforms[:80]
+        sample = transforms[:_SAMPLE_OVERLAPS]
+        pairs_checked = 0
 
         for i in range(len(sample)):
-            for j in range(i + 1, min(len(sample), i + 30)):
+            for j in range(i + 1, min(len(sample), i + _SAMPLE_OVERLAP_WINDOW)):
+                pairs_checked += 1
                 try:
                     m = measure(sample[i].split("|")[-1],
                                 sample[j].split("|")[-1], "bbox")
@@ -2369,8 +2467,14 @@ def scene_review(checks=None):
                 "msg": "%d minor overlaps." % len(overlap_pairs)})
 
         total_score += pts
-        result["checks"]["overlaps"] = {"pairs": len(overlap_pairs),
-                                         "details": overlap_pairs[:5]}
+        result["checks"]["overlaps"] = {
+            "pairs": len(overlap_pairs),
+            "details": overlap_pairs[:5],
+            "checked": len(sample),
+            "skipped": len(transforms) - len(sample),
+            "pairs_checked": pairs_checked,
+            "pair_window": _SAMPLE_OVERLAP_WINDOW,
+        }
 
     # === SPATIAL CONFLICTS (10 pts) ===
     if "conflicts" in checks:
@@ -2378,19 +2482,18 @@ def scene_review(checks=None):
         pts = 10
         conflicts = []
 
+        sample = transforms[:_SAMPLE_CONFLICTS]
         obj_bounds = {}
-        for t in transforms[:60]:
+        for t in sample:
             try:
                 sel = om2.MSelectionList()
                 sel.add(t)
                 dag = sel.getDagPath(0)
-                fn = om2.MFnDagNode(dag)
-                bbox = fn.boundingBox
-                wm = dag.inclusiveMatrix()
                 short = t.split("|")[-1]
+                wb = _world_bbox(dag)
                 obj_bounds[short] = {
-                    "min": [bbox.min[i] + wm[12+i] for i in range(3)],
-                    "max": [bbox.max[i] + wm[12+i] for i in range(3)],
+                    "min": [wb.min[i] for i in range(3)],
+                    "max": [wb.max[i] for i in range(3)],
                 }
             except Exception:
                 pass
@@ -2444,8 +2547,12 @@ def scene_review(checks=None):
                 "msg": "%d spatial conflicts detected." % len(conflicts)})
 
         total_score += pts
-        result["checks"]["conflicts"] = {"count": len(conflicts),
-                                          "details": conflicts[:5]}
+        result["checks"]["conflicts"] = {
+            "count": len(conflicts),
+            "details": conflicts[:5],
+            "checked": len(sample),
+            "skipped": len(transforms) - len(sample),
+        }
 
     # === ZONE COVERAGE (5 pts) ===
     if "zones" in checks:
@@ -2536,8 +2643,9 @@ def scene_review(checks=None):
         elif len(groups) >= 1:
             pts += 1
 
+        depth_sample = transforms[:_SAMPLE_DEPTH]
         max_depth = 0
-        for t in transforms[:30]:
+        for t in depth_sample:
             depth = t.count("|")
             max_depth = max(max_depth, depth)
         if max_depth <= _MAYA_STANDARDS["max_nesting_depth"]:
@@ -2552,6 +2660,8 @@ def scene_review(checks=None):
             "ungrouped_meshes": ungrouped_meshes,
             "groups": len(groups),
             "max_depth": max_depth,
+            "depth_checked": len(depth_sample),
+            "depth_skipped": len(transforms) - len(depth_sample),
         }
 
     # === ORPHAN DETECTION (5 pts) ===
@@ -2869,6 +2979,20 @@ def scene_plan(objective=None, auto_fix=False):
     # === 4. CONFLICT PREVENTION ===
     result["conflict_prevention"] = _predict_conflicts(transforms)
 
+    # Disclose sampling caps applied by the analysis passes above
+    result["sampling"] = {
+        "layout_objects": {
+            "checked": min(len(transforms), _SAMPLE_LAYOUT),
+            "skipped": max(0, len(transforms) - _SAMPLE_LAYOUT),
+            "object_limit": _SAMPLE_LAYOUT,
+        },
+        "conflict_objects": {
+            "checked": min(len(transforms), _SAMPLE_CONFLICTS),
+            "skipped": max(0, len(transforms) - _SAMPLE_CONFLICTS),
+            "object_limit": _SAMPLE_CONFLICTS,
+        },
+    }
+
     # === 5. GROUP LAYOUT ANALYSIS ===
     result["group_layout"] = _analyze_group_layout(transforms)
 
@@ -3151,18 +3275,9 @@ def _analyze_group_layout(transforms):
                     bbox = om2.MBoundingBox()
                     for i in range(sel.length()):
                         dag = sel.getDagPath(i)
-                        fn = om2.MFnDagNode(dag)
-                        local_bbox = fn.boundingBox
-                        wm = dag.inclusiveMatrix()
-                        # Transform bbox to world space
-                        for corner_idx in range(8):
-                            corner = om2.MPoint(
-                                local_bbox.min[0] if corner_idx & 1 else local_bbox.max[0],
-                                local_bbox.min[1] if corner_idx & 2 else local_bbox.max[1],
-                                local_bbox.min[2] if corner_idx & 4 else local_bbox.max[2],
-                            )
-                            world_corner = corner * wm
-                            bbox.expand(world_corner)
+                        wb = _world_bbox(dag)
+                        bbox.expand(wb.min)
+                        bbox.expand(wb.max)
 
                     center = [
                         (bbox.min[0] + bbox.max[0]) / 2,
@@ -3349,7 +3464,11 @@ def _analyze_zone_balance(zone_data):
     """Analyze zone coverage and spatial balance."""
     zones = zone_data.get("zones", [])
     unassigned = zone_data.get("unassigned_count", 0)
-    total = zone_data.get("total_objects", 1)
+    total = zone_data.get("total_objects")
+    if not total:
+        # Backward-compatible fallback: derive from zones + unassigned
+        total = unassigned + sum(z.get("object_count", 0) for z in zones)
+    total = max(total, 1)
 
     coverage = 1.0 - (unassigned / total) if total > 0 else 0
 
@@ -3386,18 +3505,18 @@ def _suggest_layout(transforms, zone_data):
 
     # Find objects and their positions
     objects = []
-    for t in transforms[:100]:
+    for t in transforms[:_SAMPLE_LAYOUT]:
         try:
             sel = om2.MSelectionList()
             sel.add(t)
             dag = sel.getDagPath(0)
             fn = om2.MFnDagNode(dag)
-            bbox = fn.boundingBox
             wm = dag.inclusiveMatrix()
+            wb = _world_bbox(dag)
             pos = [wm[12], wm[13], wm[14]]
-            size = max(abs(bbox.max[0] - bbox.min[0]),
-                      abs(bbox.max[1] - bbox.min[1]),
-                      abs(bbox.max[2] - bbox.min[2]))
+            size = max(abs(wb.max[0] - wb.min[0]),
+                      abs(wb.max[1] - wb.min[1]),
+                      abs(wb.max[2] - wb.min[2]))
             objects.append({
                 "name": fn.name(),
                 "position": pos,
@@ -3411,7 +3530,7 @@ def _suggest_layout(transforms, zone_data):
 
     # Check for clustering (objects too close together)
     for i in range(len(objects)):
-        for j in range(i + 1, min(len(objects), i + 20)):
+        for j in range(i + 1, min(len(objects), i + _SAMPLE_LAYOUT_WINDOW)):
             dist = math.sqrt(
                 (objects[i]["position"][0] - objects[j]["position"][0]) ** 2 +
                 (objects[i]["position"][2] - objects[j]["position"][2]) ** 2
@@ -3448,20 +3567,18 @@ def _predict_conflicts(transforms):
     """Predict potential spatial conflicts before they happen."""
     conflicts = []
 
-    # Get bounds for all objects
+    # Get bounds for all objects (world-space via 8-corner transform)
     obj_bounds = {}
-    for t in transforms[:60]:
+    for t in transforms[:_SAMPLE_CONFLICTS]:
         try:
             sel = om2.MSelectionList()
             sel.add(t)
             dag = sel.getDagPath(0)
-            fn = om2.MFnDagNode(dag)
-            bbox = fn.boundingBox
-            wm = dag.inclusiveMatrix()
             short = t.split("|")[-1]
+            wb = _world_bbox(dag)
             obj_bounds[short] = {
-                "min": [bbox.min[i] + wm[12+i] for i in range(3)],
-                "max": [bbox.max[i] + wm[12+i] for i in range(3)],
+                "min": [wb.min[i] for i in range(3)],
+                "max": [wb.max[i] for i in range(3)],
             }
         except Exception:
             pass

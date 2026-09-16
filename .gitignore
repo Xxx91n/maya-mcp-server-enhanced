@@ -14,3 +14,4 @@ venv/
 checkpoints/
 .DS_Store
 Thumbs.db
+.codex_tmp/

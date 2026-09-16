@@ -7,6 +7,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
+from maya_mcp_server.client import raise_for_error
 from maya_mcp_server.connection_guide import (
     get_agent_connection_instructions,
     get_connection_diagnostics,
@@ -285,9 +286,8 @@ async def execute_code(
     Returns:
         Captured result (None if result_type is NONE)
 
-    Note: stdout and stderr are delivered in real-time via MCP Resource
-    subscriptions (maya://sessions/{session_key}/stdout and /stderr).
-    Call get_output() to retrieve buffered output.
+    Note: stdout and stderr are captured and exposed via the
+    maya://sessions/{session_key}/output MCP Resource.
 
     Example:
         # Execute statements
@@ -349,6 +349,9 @@ async def execute_code(
 
     # Mark scene cache dirty after code execution
     mark_dirty(session_key)
+
+    # Surface Maya-side execution errors instead of silently dropping them
+    raise_for_error(result)
 
     return result.result
 

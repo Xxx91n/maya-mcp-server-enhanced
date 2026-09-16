@@ -16,6 +16,7 @@ from maya_mcp_server.bootstrap import (
     get_bootstrap_code,
     get_helper_module_code,
 )
+from maya_mcp_server.security import sanitize_error_message
 from maya_mcp_server.types import (
     COMMUNICATION_PORT_MAX,
     COMMUNICATION_PORT_MIN,
@@ -50,6 +51,25 @@ class MayaExecutionError(Exception):
     """Error executing code in Maya."""
 
     pass
+
+
+def raise_for_error(response: "CommandResponse") -> None:
+    """Raise MayaExecutionError if the response carries a Maya-side error.
+
+    Single choke point so both server.execute_code and the scene-tool layer
+    surface errors identically (message sanitized, type + traceback kept).
+    """
+    err = getattr(response, "error", None)
+    if not err:
+        return
+    etype = err.get("type", "Error") if isinstance(err, dict) else "Error"
+    emsg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+    etb = err.get("traceback", "") if isinstance(err, dict) else ""
+    detail = f"Maya execution error ({etype}): {emsg}"
+    if etb:
+        detail += "\n" + etb
+    raise MayaExecutionError(sanitize_error_message(detail))
+
 
 
 @dataclass
