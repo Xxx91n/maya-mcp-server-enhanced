@@ -1213,6 +1213,10 @@ def save_checkpoint(
                 "existing": cp_filename,
             }
         prev_name = f"prev_{timestamp}_{cp_filename}"
+        i = 2
+        while os.path.exists(os.path.join(cp_dir, prev_name)):
+            prev_name = f"prev_{timestamp}_{i}_{cp_filename}"
+            i += 1
         try:
             os.replace(cp_path, os.path.join(cp_dir, prev_name))
         except Exception as e:
@@ -1293,6 +1297,9 @@ def rollback_to_checkpoint(
     that auto snapshot fails the rollback aborts, unless
     discard_current_state=True escapes it (safety_snapshot becomes
     "skipped_by_user").
+
+      For untitled scenes the auto snapshot lands in the workspace
+      ad-hoc checkpoints dir (D-016d); failure still aborts unless escaped.
 
     Honest bounds: snapshots contain no undo history \u2014 call
     scene_snapshot afterwards to rebuild context; references are

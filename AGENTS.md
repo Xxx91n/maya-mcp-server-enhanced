@@ -13,7 +13,7 @@ src/maya_mcp_server/
 ├── session_manager.py     # Multi-session management
 ├── maya_mcp_helper.py     # Maya-side helper (executed inside Maya)
 ├── maya_bootstrap.py      # Maya bootstrap code (create_module)
-├── scene_tools.py         # 15 MCP scene tool definitions
+├── scene_tools.py         # 13 MCP scene tool definitions
 ├── scene_cache.py         # TTL + dirty-detection cache
 ├── cos_formatter.py       # Chain-of-Symbol notation formatter
 ├── maya_scene_module.py   # Maya-side module (injected via write_module)

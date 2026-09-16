@@ -46,8 +46,7 @@
 
 - _suggest_layout pair-window(i+20) 截断仍未披露（constraints/overlaps 已补 pair_window/pairs_skipped）
 - checked/skipped 披露字段三处异构未统一
-- AGENTS.md tests/ 结构表未含新文件；orbit_cam/shot_cam 默认名无 CAM_ 前缀
-- dist_audit/ 未 gitignore
+- orbit_cam/shot_cam 默认名无 CAM_ 前缀
 - 玄学评分算法语义重设计（golden ratio 杂物堆偏差/人体工学靠名字/走廊只看 bbox X 分量）——超出“修复对齐”范围，仅登记（D-014d）
 - connection_guide 三处版本扫描函数复制粘贴（T-04 顺带可清）
 

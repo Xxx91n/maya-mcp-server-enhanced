@@ -9,10 +9,8 @@
 - 决策账本（D-001..D-016 全 current）：.scratch/maya-mcp-grill/decision-ledger.md
 - T-04 spec：ADR-0005 + 账本 D-008/D-014b；范围=18 工具统一校验/限流/审计/pattern 收口 + SECURITY.md/威胁模型 8 项 + connection_guide 越权收口（合并式写入/虚假文案/硬编码路径/_get_platform 去重）
 
-## 顺带项（T-04 内处理，审计观察项）
-- O4：补 1 个测试钉住 untitled+auto_before_rollback 时 auto 快照落 workspace/checkpoints
-- O5：隐藏案例 3 测试加钉“快照已丢失”字面量（missing vs corrupt 区分）
-- rev4 登记债两条陈旧项（dist_audit gitignore / AGENTS.md tests 表）下次改文档时顺手删行
+## 审计观察项处置（已于 fix 轮全部修复）
+- O1–O9 全落地：报告口径订正、诚实边界/单会话假设上 README×2+server instructions、D-016d 测试钉+docstring、隐藏案例3 字面量钉、prev_ 同秒撞名后缀、ADR absoluteName 措辞、登记债清陈旧、AGENTS.md 订正 13 工具、README 表补 scene_checkpoint_list
 
 ## 注意
 - 写文件经 ctx_execute(node fs)；版本控制只用 but；新实现轮用独立分支

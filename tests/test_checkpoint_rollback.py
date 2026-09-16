@@ -207,7 +207,8 @@ class TestRollback:
     def test_rollback_missing_snapshot(self, saved_scene):
         res = saved_scene.module.rollback_to_checkpoint("cp_ghost.ma")
         assert "error" in res
-        assert "snapshot" in res["error"].lower()
+        assert "快照已丢失" in res["error"]
+        assert "missing" in res["error"].lower()  # missing, not corrupt
 
     def test_rollback_corrupt_snapshot(self, saved_scene, tmp_path):
         cp_dir = tmp_path / "checkpoints"
@@ -215,7 +216,8 @@ class TestRollback:
         (cp_dir / "cp_bad.ma").write_text("garbage without header")
         res = saved_scene.module.rollback_to_checkpoint("cp_bad.ma")
         assert "error" in res
-        assert "snapshot" in res["error"].lower()
+        assert "快照已丢失" in res["error"]
+        assert "header" in res["error"].lower() or "corrupt" in res["error"].lower()
 
     def test_auto_snapshot_failure_aborts(self, saved_scene, monkeypatch):
         saved_scene.scene.add_mesh("GEO_a")
@@ -276,6 +278,22 @@ class TestRollback:
         assert rb["original_file_status"] == "no_original_file"
         assert rb["scene_name_after"].endswith("cp_adhoc_rescue.ma")
         assert not untitled_scene.scene.exists("GEO_after")
+
+    def test_rollback_untitled_auto_snapshot_lands_workspace(self, untitled_scene, tmp_path):
+        """D-016d: untitled + auto_before_rollback -> auto snapshot lands in
+        the workspace ad-hoc checkpoints dir."""
+        untitled_scene.scene.add_mesh("GEO_a")
+        res = untitled_scene.module.save_checkpoint("rescue")
+        assert "error" not in res
+        rb = untitled_scene.module.rollback_to_checkpoint("cp_adhoc_rescue.ma")
+        assert rb["success"] is True, rb
+        assert rb["safety_snapshot"] != "skipped_by_user"
+        assert os.path.dirname(rb["safety_snapshot"]) == str(
+            tmp_path / "ws" / "checkpoints"
+        )
+        assert os.path.basename(rb["safety_snapshot"]).startswith(
+            "cp_auto_before_rollback_"
+        )
 
     def test_rollback_open_failure_reports_state(self, saved_scene, monkeypatch):
         saved_scene.scene.add_mesh("GEO_a")

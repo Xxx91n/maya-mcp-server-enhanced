@@ -87,6 +87,8 @@ mcp = FastMCP(
         "- Call scene_snapshot() before modifications\n"
         "- Use scene_checkpoint() before risky operations\n"
         "- Snapshots carry no undo history; after scene_rollback call scene_snapshot to rebuild context\n"
+        "- Snapshots are self-contained (references flattened, no write-back);\n"
+        "  one scene file per session assumed\n"
         "- Use scene_validate() to check constraints after changes\n"
         "- Cache auto-invalidates after execute_code/write_module"
     ),
