@@ -1,6 +1,6 @@
-# Handoff — maya-mcp-grill 下一轮任务书（rev3）
+# Handoff — maya-mcp-grill 下一轮任务书（rev4）
 
-> 生成时间：2026-09-16（锐评复核轮收尾）。本文档供任意子 Agent 接手执行；结论以决策账本为唯一真源。
+> 生成时间：2026-09-16（T-03 交付收尾）。本文档供任意子 Agent 接手执行；结论以决策账本为唯一真源。
 
 ## 真源与上下文（先读这些）
 
@@ -14,7 +14,9 @@
 ## 已完成（验收事实，非计划）
 
 - **T-01/T-02** 已交付于 commit 63dfeae（branch fix/t01-t02-stub-and-p0），两轮审计通过（reports/2026-09-16-audit-t01-t02-rev2.md 判定“通过带登记残留”）。
-- 基线（重跑口径）：pytest 335 passed + 2 skipped；compileall OK；pip wheel OK；stdio init 2.14.7 / tools=18 / ping；ruff src≤187 / 全仓≤246；mypy≤227。
+- **T-03** 已交付于 commit lkt（branch fix/t03-checkpoint-rollback，stacked on grill/round4-rui-review-docs）：checkpoint=exportAll 内存态真快照、rollback=S2 重绑+四字段结构化返回、auto_before_rollback 失败即中止+discard_current_state 逃生、untitled ad-hoc（workspace/checkpoints、cp_adhoc_ 前缀）、同名拒绝+prev_ 保留件、快照删改检测报“快照已丢失”、全部 file 操作 prompt=False。隐藏案例 1-4 全部有测试。报告：reports/2026-09-16-report-t03.md。
+- 新基线（重跑口径）：pytest 369 passed + 3 skipped；compileall OK；pip wheel OK；stdio init 2.14.2 / tools=18 / ping（scene_checkpoint 含 name/overwrite、scene_rollback 含 filename/discard_current_state）；ruff src=185 / 全仓=244；mypy=223。
+- 已落账：D-016（T-03 内定 spec：文件名方案、ad-hoc 位置、白名单、original_file_status 值域）。
 - 覆盖 rui.txt：P0-1 错误透传 / P0-2 JSON 传参 / P0-4 _world_bbox / P0-5 采样披露 / P1-2 三连 全修；P1-1 中 KeyError 已修。
 - 未修项均有归属：P0-3→T-03、P1-1 双实现+伪引用→T-06、P1-3→T-05、P2 文档/许可/CI→T-09/T-10、connection_guide 越权→T-04。
 
@@ -30,7 +32,6 @@
 
 | # | 任务 | 覆盖 D-xxx | 交付物/要点 | suggested skills |
 |---|------|-----------|------------|------------------|
-| T-03 | checkpoint/rollback 重做（spec 已补齐，以 ADR-0004 + D-015 为准）：exportAll 真快照落 checkpoints/；name 严格白名单 ^[A-Za-z0-9_-]+$（error 带 suggestion 不自动采用）；同名默认拒绝 + overwrite:true + 覆盖前旧文件 rename 保留；rollback=S2 + auto_before_rollback exportAll 化 + 失败即中止 + discard_current_state 逃生（默认 false）+ safety_snapshot 字段；untitled 默认报错 + 显式 name → ad-hoc 快照（S1、scene_rebound_to=null、original_file_status=no_original_file）；结构化四字段返回；两诚实边界入文档；全部 file 操作 prompt=False；sceneName 用 absoluteName 消歧；mayapy 档 reference-edit 往返回归用例 | D-007, D-015 | 隐藏案例 1-4 为必测：checkpoints 是文件/不可写、同名 cp、快照外部删改（exists+//Maya ASCII 头校验报“快照已丢失”）、open 失败半残态（定义 scene_name_after+建议 scene_snapshot 重建） | tdd, implement |
 | T-04 | 安全统一管线 + 威胁模型文档（并入 D-014b）：18 工具收口统一校验/限流/审计/pattern 扫描；SECURITY.md + README 警示框 + 边界声明（禁 sandbox/secure）+ 端口暴露说明 + 危险工具 annotations + 审计日志 schema；并入 connection_guide 越权收口：userSetup.py 覆盖改合并式写入或显式确认、fallback“已生成”虚假文案修正、硬编码示例路径清除、_get_platform 与 utils.get_platform 去重 | D-008, D-014 | 见 ADR-0005 | implement, code-review, security-review-orchestrator |
 | T-05 | 连接层 Qt 重写（并入 D-014c）：readyRead 事件驱动 + 逐连接队列 + 长度前缀分帧（8-16MiB 帧上限）+ typed error + 指数退避(0.5/1/2s) + localhost-only + 健康探针 + _failed_ports 去重；修 add_session 丢 bootstrap 返回值；GUI 会话移除 temp-file 注入；native 文档化为 bootstrap/headless 最小通道；顺带清理：StreamWriter 5MB 上限接线（_MAX_STREAM_BUFFER_SIZE 现仅定义未用）、client.py write_module 死响应、__main__ 调试脚本移出库代码（client.py/session_manager.py 同款） | D-013, D-014 | 见 ADR-0010 | implement, tdd, research |
 | T-06 | 审美引擎单源化（并入 D-014a）：aesthetic_engine.py 经 write_module 注入为唯一真源；_mcp_scene 审美函数改 采集→调用→格式化；对齐 analyze_aesthetics/scene_review 采集字段契约；删内联复制品；**重写时清算伪学术引用**（McCamy/mired/“Within 15%”/Aesthetic3D r=0.78/arXiv 2016/Tripo3D/Narrative 2025——不搬进 Maya）；玄学评分算法偏差只记录不重设计（登记债） | D-006, D-014 | 见 ADR-0003 | implement, tdd |
@@ -58,8 +59,8 @@
 4. 全工具结构化错误返回格式统一规范（自 T-03 起每任务定 schema 时保持一致）
 5. CoS 格式是否作为公共契约版本化（T-09/T-12）
 6. 首发版本号与发布节奏（T-09 内定）
-7. untitled 场景 + auto_before_rollback 组合的实现语义（T-03 内定，ADR-0004 已给约束：不得留给 Maya 默认）
-8. ad-hoc 快照文件名标记的具体形式（T-03 内定）
+7. ~~untitled 场景 + auto_before_rollback 组合~~（已定：D-016d，auto 快照落 workspace ad-hoc 目录，失败即中止）
+8. ~~ad-hoc 快照文件名标记~~（已定：D-016a，cp_adhoc_{name}.ma 落 <workspace>/checkpoints/）
 
 ## 完成判定（Definition of Done）
 
