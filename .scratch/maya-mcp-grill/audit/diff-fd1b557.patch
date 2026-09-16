@@ -1,0 +1,2674 @@
+commit fd1b55747de31d843577fcee3cc9d9cd5915a86b
+fix(T-01/T-02): maya stub scaffold + P0 correctness repairs
+T-01: tests/maya_stub/ — semantic fakes for maya.cmds / maya.api.OpenMaya
+with real DAG scene graph, row-major matrix math, and correct 8-corner
+world-bbox transforms. Self-verified by test_maya_stub.py; mayapy tier
+documented in docs/testing.md (manual-only, never CI).
+
+T-02 P0 repairs (each pinned by a regression test):
+- server.execute_code / _execute_scene_code: raise MayaExecutionError on
+  CommandResponse.error instead of silently dropping Maya-side failures
+- scene_tools: all generated code now JSON-serializes args via _scene_call
+  (kills the rules_escaped / *_escaped interpolation injection surface)
+- measure/conflicts/_predict_conflicts/_suggest_layout: shared _world_bbox
+  helper transforms all 8 bbox corners (rotation/scale-safe)
+- measure clearance: signed AABB separation (euclidean over separating
+  axes, negative = penetration depth) — fixes min_clearance false-negatives
+- all sampling caps (aesthetics 200, overlaps 80, conflicts 60, layout 100,
+  pair windows) now disclose checked/skipped
+- scene_assert: exists:false honored for missing objects; bbox_min added
+- get_zone_map reports total_objects; zone coverage no longer always -4x
+- create_orbit_camera creates LOC_<name>_target locator + real aim
+  constraint instead of aiming at None
+- server/types docstrings: drop hallucinated get_output(), point to the
+  real maya://sessions/{key}/output resource
+
+Verification: pytest 333 green (284 baseline + 49 new), ruff 245->184,
+mypy 277->227, wheel builds, stdio init + tools/list(18) + ping probe OK
+
+diff --git a/pyproject.toml b/pyproject.toml
+index 3ebc308..89decae 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -54,6 +54,9 @@ packages = ["src/maya_mcp_server"]
+ asyncio_mode = "auto"
+ asyncio_default_fixture_loop_scope = "function"
+ testpaths = ["tests"]
++markers = [
++    "mayapy: requires a real Maya interpreter (mayapy) — local manual tier, never CI",
++]
+ 
+ [tool.ruff]
+ line-length = 100
+@@ -67,6 +70,10 @@ known-first-party = ["maya_mcp_server"]
+ force-single-line = false
+ lines-after-imports = 2
+ 
++[tool.ruff.lint.per-file-ignores]
++# The maya stub must mirror Maya's camelCase API surface verbatim
++"tests/maya_stub/**" = ["N802", "N803", "N806", "N815", "F401"]
++
+ [tool.mypy]
+ python_version = "3.10"
+ strict = true
+diff --git a/src/maya_mcp_server/maya_scene_module.py b/src/maya_mcp_server/maya_scene_module.py
+index ea1521f..b430afc 100644
+--- a/src/maya_mcp_server/maya_scene_module.py
++++ b/src/maya_mcp_server/maya_scene_module.py
+@@ -11,6 +11,7 @@ import json
+ import math
+ import re
+ from collections import defaultdict
++from typing import Any
+ 
+ import maya.api.OpenMaya as om2  # noqa: N813
+ import maya.cmds as cmds
+@@ -18,27 +19,27 @@ import maya.cmds as cmds
+ 
+ # --- Internal helpers ---
+ 
+-def _round3(val):
++def _round3(val: float) -> float:
+     """Round float to 3 decimal places."""
+     return round(float(val), 3)
+ 
+ 
+-def _round3_list(vals):
++def _round3_list(vals: Any) -> list[float]:
+     """Round a list of floats."""
+     return [_round3(v) for v in vals]
+ 
+ 
+-def _vec3_to_list(p):
++def _vec3_to_list(p: "om2.MPoint | om2.MVector") -> list[float]:
+     """Convert MPoint/MVector to [x,y,z]."""
+     return [_round3(p[0]), _round3(p[1]), _round3(p[2])]
+ 
+ 
+-def _matrix_to_pos(matrix):
++def _matrix_to_pos(matrix: "om2.MMatrix") -> list[float]:
+     """Extract translation from MMatrix."""
+     return [_round3(matrix[12]), _round3(matrix[13]), _round3(matrix[14])]
+ 
+ 
+-def _classify_node(dag):
++def _classify_node(dag: "om2.MDagPath") -> str:
+     """Classify a DAG node into a type string."""
+     try:
+         fn = om2.MFnDagNode(dag)
+@@ -75,7 +76,7 @@ def _classify_node(dag):
+         return "unknown"
+ 
+ 
+-def _get_material_for_dag(dag):
++def _get_material_for_dag(dag: "om2.MDagPath") -> "str | None":
+     """Get material name for a DAG node."""
+     try:
+         fn = om2.MFnDagNode(dag)
+@@ -101,7 +102,7 @@ def _get_material_for_dag(dag):
+     return None
+ 
+ 
+-def _get_mesh_stats(dag):
++def _get_mesh_stats(dag: "om2.MDagPath") -> dict[str, int]:
+     """Get vertex and face count for a mesh DAG node."""
+     try:
+         dag_path = om2.MDagPath.getAPathTo(dag)
+@@ -114,7 +115,7 @@ def _get_mesh_stats(dag):
+         return {"v": 0, "f": 0}
+ 
+ 
+-def _get_bbox_size(bbox):
++def _get_bbox_size(bbox: "om2.MBoundingBox") -> list[float]:
+     """Get [w, h, d] from MBoundingBox."""
+     mn = bbox.min
+     mx = bbox.max
+@@ -125,7 +126,7 @@ def _get_bbox_size(bbox):
+     ]
+ 
+ 
+-def _point_distance(a, b):
++def _point_distance(a: "om2.MPoint", b: "om2.MPoint") -> float:
+     """Euclidean distance between two MPoints."""
+     dx = a[0] - b[0]
+     dy = a[1] - b[1]
+@@ -133,6 +134,43 @@ def _point_distance(a, b):
+     return math.sqrt(dx * dx + dy * dy + dz * dz)
+ 
+ 
++# Sampling caps. Any analysis path that truncates MUST disclose how much
++# it examined vs skipped (checked/skipped fields) — no silent partial scans.
++_SAMPLE_AESTHETICS = 200
++_SAMPLE_OVERLAPS = 80
++_SAMPLE_OVERLAP_WINDOW = 30
++_SAMPLE_CONFLICTS = 60
++_SAMPLE_LAYOUT = 100
++_SAMPLE_LAYOUT_WINDOW = 20
++_SAMPLE_CONSTRAINT_WINDOW = 20
++_SAMPLE_DEPTH = 30
++
++
++def _world_bbox(dag: "om2.MDagPath") -> "om2.MBoundingBox":
++    """World-space AABB for a DAG node.
++
++    Transforms all 8 corners of the object-space bounding box by the
++    inclusive (world) matrix. This is the ONLY correct way to get a world
++    AABB under rotation/scale — transforming just min and max produces
++    wrong bounds for any non-axis-aligned object.
++
++    Returns:
++        om2.MBoundingBox in world space.
++    """
++    fn = om2.MFnDagNode(dag)
++    bbox = fn.boundingBox
++    wm = dag.inclusiveMatrix()
++    out = om2.MBoundingBox()
++    for i in range(8):
++        corner = om2.MPoint(
++            bbox.min[0] if i & 1 else bbox.max[0],
++            bbox.min[1] if i & 2 else bbox.max[1],
++            bbox.min[2] if i & 4 else bbox.max[2],
++        )
++        out.expand(corner * wm)
++    return out
++
++
+ # --- Public API ---
+ 
+ def get_scene_graph(detail_level="compact") -> dict:
+@@ -371,7 +409,11 @@ def get_zone_map(patterns=None) -> dict:
+             zone["bbox_max"] = [0, 0, 0]
+         result_zones.append(zone)
+ 
+-    return {"zones": result_zones, "unassigned_count": len(unassigned)}
++    return {
++        "zones": result_zones,
++        "unassigned_count": len(unassigned),
++        "total_objects": len(transforms),
++    }
+ 
+ 
+ def get_spatial_index(max_neighbors=8, max_distance=None) -> dict:
+@@ -509,25 +551,19 @@ def measure(obj_a, obj_b, mode="center") -> dict:
+         sel_a = om2.MSelectionList()
+         sel_a.add(obj_a)
+         dag_a = sel_a.getDagPath(0)
+-        fn_a = om2.MFnDagNode(dag_a)
+-        bbox_a = fn_a.boundingBox
+-        pos_a = dag_a.inclusiveMatrix()
+ 
+         sel_b = om2.MSelectionList()
+         sel_b.add(obj_b)
+         dag_b = sel_b.getDagPath(0)
+-        fn_b = om2.MFnDagNode(dag_b)
+-        bbox_b = fn_b.boundingBox
+-        pos_b = dag_b.inclusiveMatrix()
+     except Exception as e:
+         result["error"] = str(e)
+         return result
+ 
+-    # Transform bboxes to world space
+-    world_min_a = bbox_a.min * pos_a
+-    world_max_a = bbox_a.max * pos_a
+-    world_min_b = bbox_b.min * pos_b
+-    world_max_b = bbox_b.max * pos_b
++    # World-space AABBs via all 8 local-bbox corners (rotation-safe)
++    wb_a = _world_bbox(dag_a)
++    wb_b = _world_bbox(dag_b)
++    world_min_a, world_max_a = wb_a.min, wb_a.max
++    world_min_b, world_max_b = wb_b.min, wb_b.max
+ 
+     # Center points
+     center_a = om2.MPoint(
+@@ -597,16 +633,22 @@ def measure(obj_a, obj_b, mode="center") -> dict:
+         }
+ 
+     elif mode == "clearance":
+-        # Clearance = surface distance, negative means overlap
+-        # On each axis
+-        clearances = []
++        # Signed AABB separation distance.
++        # Positive: euclidean distance across the separating axes.
++        # Negative: penetration depth (min translation needed to separate).
++        gaps = []
+         for i in range(3):
+-            c = max(world_min_a[i], world_min_b[i]) - min(world_max_a[i], world_max_b[i])
+-            clearances.append(_round3(c))
+-        # Minimum clearance across axes
+-        min_clearance = min(clearances)
+-        result["distance"] = _round3(min_clearance)
+-        result["details"] = {"clearances_xyz": clearances}
++            gaps.append(
++                max(world_min_a[i], world_min_b[i])
++                - min(world_max_a[i], world_max_b[i])
++            )
++        if any(g >= 0 for g in gaps):
++            dist = math.sqrt(sum(max(0.0, g) ** 2 for g in gaps))
++        else:
++            dist = max(gaps)  # all negative: least-penetrating axis
++        result["distance"] = _round3(dist)
++        result["bbox_overlap"] = all(g < 0 for g in gaps)
++        result["details"] = {"clearances_xyz": [_round3(g) for g in gaps]}
+ 
+     return result
+ 
+@@ -708,13 +750,17 @@ def assert_scene_state(expectations_json) -> dict:
+             dag = sel_list.getDagPath(0)
+             fn = om2.MFnDagNode(dag)
+         except Exception:
+-            mismatches.append({
+-                "object": obj_name,
+-                "property": "existence",
+-                "expected": "exists",
+-                "actual": "not found",
+-            })
+             checked += 1
++            if expected.get("exists") is False:
++                # exists:false on a missing object is a pass
++                passed += 1
++            else:
++                mismatches.append({
++                    "object": obj_name,
++                    "property": "existence",
++                    "expected": "exists",
++                    "actual": "not found",
++                })
+             continue
+ 
+         # Check position
+@@ -764,6 +810,29 @@ def assert_scene_state(expectations_json) -> dict:
+                     "error": str(e),
+                 })
+ 
++        # Check bbox_min
++        if "bbox_min" in expected:
++            checked += 1
++            try:
++                bbox = fn.boundingBox
++                actual_min = _vec3_to_list(bbox.min)
++                exp_min = expected["bbox_min"]
++                if any(abs(a - e) > 1.0 for a, e in zip(actual_min, exp_min)):
++                    mismatches.append({
++                        "object": obj_name,
++                        "property": "bbox_min",
++                        "expected": exp_min,
++                        "actual": actual_min,
++                    })
++                else:
++                    passed += 1
++            except Exception as e:
++                mismatches.append({
++                    "object": obj_name,
++                    "property": "bbox_min",
++                    "error": str(e),
++                })
++
+         # Check existence only
+         if "exists" in expected:
+             checked += 1
+@@ -817,6 +886,8 @@ def check_constraints(rules):
+     """
+     violations = []
+     checked = 0
++    pairs_checked = 0
++    pairs_total = 0
+ 
+     for rule in rules:
+         rtype = rule.get("type", "")
+@@ -836,8 +907,10 @@ def check_constraints(rules):
+                         break
+                 transforms = [t for t in transforms if t.split("|")[-1] in zone_names]
+ 
++            pairs_total += len(transforms) * (len(transforms) - 1) // 2
+             for i in range(len(transforms)):
+-                for j in range(i + 1, min(len(transforms), i + 20)):
++                for j in range(i + 1, min(len(transforms), i + _SAMPLE_CONSTRAINT_WINDOW)):
++                    pairs_checked += 1
+                     try:
+                         m = measure(
+                             transforms[i].split("|")[-1],
+@@ -845,7 +918,8 @@ def check_constraints(rules):
+                             "clearance"
+                         )
+                         checked += 1
+-                        if m.get("distance", 999) < value and m.get("distance", 999) > 0:
++                        # Negative clearance = penetration — that IS a violation
++                        if m.get("distance", 999) < value:
+                             violations.append({
+                                 "type": "min_clearance",
+                                 "objects": [transforms[i].split("|")[-1], transforms[j].split("|")[-1]],
+@@ -869,8 +943,10 @@ def check_constraints(rules):
+             transforms = cmds.ls(type="transform", long=True) or []
+             if obj_list:
+                 transforms = [t for t in transforms if t.split("|")[-1] in obj_list]
++            pairs_total += len(transforms) * (len(transforms) - 1) // 2
+             for i in range(len(transforms)):
+-                for j in range(i + 1, min(len(transforms), i + 20)):
++                for j in range(i + 1, min(len(transforms), i + _SAMPLE_CONSTRAINT_WINDOW)):
++                    pairs_checked += 1
+                     try:
+                         m = measure(
+                             transforms[i].split("|")[-1],
+@@ -909,6 +985,11 @@ def check_constraints(rules):
+         "checked": checked,
+         "violations": violations,
+         "violation_count": len(violations),
++        "sampling": {
++            "pair_window": _SAMPLE_CONSTRAINT_WINDOW,
++            "pairs_checked": pairs_checked,
++            "pairs_skipped": max(0, pairs_total - pairs_checked),
++        },
+     }
+ 
+ 
+@@ -1104,7 +1185,7 @@ def create_camera_shot(target, shot_type="medium", name="shot_cam", angle=None):
+         focalLength=shot["focal_length"],
+         horizontalFilmAperture=1.417,  # 35mm
+     )
+-    cam_transform = cmds.rename(cam_transform, name)
++    cam_transform = cmds.rename(cam_transform, name) or name
+ 
+     cmds.move(cam_x, cam_y, cam_z, cam_transform)
+ 
+@@ -1156,7 +1237,12 @@ def create_orbit_camera(center, radius=500, frames=120, name="orbit_cam"):
+     import math
+ 
+     cam_transform, cam_shape = cmds.camera(name=name, focalLength=35)
+-    cam_transform = cmds.rename(cam_transform, name)
++    cam_transform = cmds.rename(cam_transform, name) or name
++
++    # Orbit pivot: locator at the requested center, then aim-constrain to it
++    loc = cmds.spaceLocator(name="LOC_%s_target" % name)
++    loc_transform = loc[0]
++    cmds.move(center[0], center[1], center[2], loc_transform)
+ 
+     # Set keyframes for circular orbit
+     step = max(1, frames // 30)  # Key every N frames for smooth orbit
+@@ -1175,10 +1261,10 @@ def create_orbit_camera(center, radius=500, frames=120, name="orbit_cam"):
+     cmds.select(cam_transform)
+     cmds.keyTangent(edit=True, itt="auto", ott="auto")
+ 
+-    # Aim constraint at center
++    # Aim constraint at the center locator
+     try:
+         cmds.aimConstraint(
+-            None, cam_transform,
++            loc_transform, cam_transform,
+             aimVector=[0, 0, -1],
+             upVector=[0, 1, 0],
+             worldUpType="scene",
+@@ -1191,6 +1277,7 @@ def create_orbit_camera(center, radius=500, frames=120, name="orbit_cam"):
+ 
+     return {
+         "camera": cam_transform,
++        "center_locator": loc_transform,
+         "center": center,
+         "radius": radius,
+         "frames": frames,
+@@ -1266,7 +1353,8 @@ def analyze_aesthetics():
+     scene_min = [float("inf")] * 3
+     scene_max = [float("-inf")] * 3
+ 
+-    for t in transforms[:200]:
++    sampled = transforms[:_SAMPLE_AESTHETICS]
++    for t in sampled:
+         try:
+             sel = om2.MSelectionList()
+             sel.add(t)
+@@ -1390,7 +1478,13 @@ def analyze_aesthetics():
+     except Exception:
+         pass
+ 
+-    return _compute_full_aesthetic_score(materials, objects, scene_bounds, lights, zone_map)
++    result = _compute_full_aesthetic_score(materials, objects, scene_bounds, lights, zone_map)
++    result["sampling"] = {
++        "checked": len(sampled),
++        "skipped": len(transforms) - len(sampled),
++        "object_limit": _SAMPLE_AESTHETICS,
++    }
++    return result
+ 
+ 
+ def _compute_full_aesthetic_score(materials, objects, scene_bounds, lights, zone_map):
+@@ -2341,10 +2435,12 @@ def scene_review(checks=None):
+         max_score += 10
+         pts = 10
+         overlap_pairs = []
+-        sample = transforms[:80]
++        sample = transforms[:_SAMPLE_OVERLAPS]
++        pairs_checked = 0
+ 
+         for i in range(len(sample)):
+-            for j in range(i + 1, min(len(sample), i + 30)):
++            for j in range(i + 1, min(len(sample), i + _SAMPLE_OVERLAP_WINDOW)):
++                pairs_checked += 1
+                 try:
+                     m = measure(sample[i].split("|")[-1],
+                                 sample[j].split("|")[-1], "bbox")
+@@ -2369,8 +2465,14 @@ def scene_review(checks=None):
+                 "msg": "%d minor overlaps." % len(overlap_pairs)})
+ 
+         total_score += pts
+-        result["checks"]["overlaps"] = {"pairs": len(overlap_pairs),
+-                                         "details": overlap_pairs[:5]}
++        result["checks"]["overlaps"] = {
++            "pairs": len(overlap_pairs),
++            "details": overlap_pairs[:5],
++            "checked": len(sample),
++            "skipped": len(transforms) - len(sample),
++            "pairs_checked": pairs_checked,
++            "pair_window": _SAMPLE_OVERLAP_WINDOW,
++        }
+ 
+     # === SPATIAL CONFLICTS (10 pts) ===
+     if "conflicts" in checks:
+@@ -2378,19 +2480,18 @@ def scene_review(checks=None):
+         pts = 10
+         conflicts = []
+ 
++        sample = transforms[:_SAMPLE_CONFLICTS]
+         obj_bounds = {}
+-        for t in transforms[:60]:
++        for t in sample:
+             try:
+                 sel = om2.MSelectionList()
+                 sel.add(t)
+                 dag = sel.getDagPath(0)
+-                fn = om2.MFnDagNode(dag)
+-                bbox = fn.boundingBox
+-                wm = dag.inclusiveMatrix()
+                 short = t.split("|")[-1]
++                wb = _world_bbox(dag)
+                 obj_bounds[short] = {
+-                    "min": [bbox.min[i] + wm[12+i] for i in range(3)],
+-                    "max": [bbox.max[i] + wm[12+i] for i in range(3)],
++                    "min": [wb.min[i] for i in range(3)],
++                    "max": [wb.max[i] for i in range(3)],
+                 }
+             except Exception:
+                 pass
+@@ -2444,8 +2545,12 @@ def scene_review(checks=None):
+                 "msg": "%d spatial conflicts detected." % len(conflicts)})
+ 
+         total_score += pts
+-        result["checks"]["conflicts"] = {"count": len(conflicts),
+-                                          "details": conflicts[:5]}
++        result["checks"]["conflicts"] = {
++            "count": len(conflicts),
++            "details": conflicts[:5],
++            "checked": len(sample),
++            "skipped": len(transforms) - len(sample),
++        }
+ 
+     # === ZONE COVERAGE (5 pts) ===
+     if "zones" in checks:
+@@ -2536,8 +2641,9 @@ def scene_review(checks=None):
+         elif len(groups) >= 1:
+             pts += 1
+ 
++        depth_sample = transforms[:_SAMPLE_DEPTH]
+         max_depth = 0
+-        for t in transforms[:30]:
++        for t in depth_sample:
+             depth = t.count("|")
+             max_depth = max(max_depth, depth)
+         if max_depth <= _MAYA_STANDARDS["max_nesting_depth"]:
+@@ -2552,6 +2658,8 @@ def scene_review(checks=None):
+             "ungrouped_meshes": ungrouped_meshes,
+             "groups": len(groups),
+             "max_depth": max_depth,
++            "depth_checked": len(depth_sample),
++            "depth_skipped": len(transforms) - len(depth_sample),
+         }
+ 
+     # === ORPHAN DETECTION (5 pts) ===
+@@ -2869,6 +2977,20 @@ def scene_plan(objective=None, auto_fix=False):
+     # === 4. CONFLICT PREVENTION ===
+     result["conflict_prevention"] = _predict_conflicts(transforms)
+ 
++    # Disclose sampling caps applied by the analysis passes above
++    result["sampling"] = {
++        "layout_objects": {
++            "checked": min(len(transforms), _SAMPLE_LAYOUT),
++            "skipped": max(0, len(transforms) - _SAMPLE_LAYOUT),
++            "object_limit": _SAMPLE_LAYOUT,
++        },
++        "conflict_objects": {
++            "checked": min(len(transforms), _SAMPLE_CONFLICTS),
++            "skipped": max(0, len(transforms) - _SAMPLE_CONFLICTS),
++            "object_limit": _SAMPLE_CONFLICTS,
++        },
++    }
++
+     # === 5. GROUP LAYOUT ANALYSIS ===
+     result["group_layout"] = _analyze_group_layout(transforms)
+ 
+@@ -3349,7 +3471,11 @@ def _analyze_zone_balance(zone_data):
+     """Analyze zone coverage and spatial balance."""
+     zones = zone_data.get("zones", [])
+     unassigned = zone_data.get("unassigned_count", 0)
+-    total = zone_data.get("total_objects", 1)
++    total = zone_data.get("total_objects")
++    if not total:
++        # Backward-compatible fallback: derive from zones + unassigned
++        total = unassigned + sum(z.get("object_count", 0) for z in zones)
++    total = max(total, 1)
+ 
+     coverage = 1.0 - (unassigned / total) if total > 0 else 0
+ 
+@@ -3386,7 +3512,7 @@ def _suggest_layout(transforms, zone_data):
+ 
+     # Find objects and their positions
+     objects = []
+-    for t in transforms[:100]:
++    for t in transforms[:_SAMPLE_LAYOUT]:
+         try:
+             sel = om2.MSelectionList()
+             sel.add(t)
+@@ -3411,7 +3537,7 @@ def _suggest_layout(transforms, zone_data):
+ 
+     # Check for clustering (objects too close together)
+     for i in range(len(objects)):
+-        for j in range(i + 1, min(len(objects), i + 20)):
++        for j in range(i + 1, min(len(objects), i + _SAMPLE_LAYOUT_WINDOW)):
+             dist = math.sqrt(
+                 (objects[i]["position"][0] - objects[j]["position"][0]) ** 2 +
+                 (objects[i]["position"][2] - objects[j]["position"][2]) ** 2
+@@ -3448,20 +3574,18 @@ def _predict_conflicts(transforms):
+     """Predict potential spatial conflicts before they happen."""
+     conflicts = []
+ 
+-    # Get bounds for all objects
++    # Get bounds for all objects (world-space via 8-corner transform)
+     obj_bounds = {}
+-    for t in transforms[:60]:
++    for t in transforms[:_SAMPLE_CONFLICTS]:
+         try:
+             sel = om2.MSelectionList()
+             sel.add(t)
+             dag = sel.getDagPath(0)
+-            fn = om2.MFnDagNode(dag)
+-            bbox = fn.boundingBox
+-            wm = dag.inclusiveMatrix()
+             short = t.split("|")[-1]
++            wb = _world_bbox(dag)
+             obj_bounds[short] = {
+-                "min": [bbox.min[i] + wm[12+i] for i in range(3)],
+-                "max": [bbox.max[i] + wm[12+i] for i in range(3)],
++                "min": [wb.min[i] for i in range(3)],
++                "max": [wb.max[i] for i in range(3)],
+             }
+         except Exception:
+             pass
+diff --git a/src/maya_mcp_server/scene_tools.py b/src/maya_mcp_server/scene_tools.py
+index 55d887c..d08fc59 100644
+--- a/src/maya_mcp_server/scene_tools.py
++++ b/src/maya_mcp_server/scene_tools.py
+@@ -11,6 +11,7 @@ import logging
+ from pathlib import Path
+ from typing import Any
+ 
++from maya_mcp_server.client import MayaExecutionError
+ from maya_mcp_server.cos_formatter import (
+     format_assert_cos,
+     format_inspect_cos,
+@@ -19,6 +20,7 @@ from maya_mcp_server.cos_formatter import (
+     format_zone_map_cos,
+ )
+ from maya_mcp_server.scene_cache import SceneCache
++from maya_mcp_server.security import InputValidationError
+ 
+ 
+ logger = logging.getLogger(__name__)
+@@ -77,7 +79,7 @@ async def _ensure_module_injected(client: Any, session_key: str | None) -> None:
+         # The temp file is accessible from both sides since they're on the same machine
+         _tmp_safe = _tmp.replace("\\", "/")
+         await client.execute_code(
+-            f"import types, sys; _c=open('{_tmp_safe}').read(); _m=types.ModuleType('_mcp_scene'); _m.__file__='<mcp:_mcp_scene>'; exec(compile(_c,'_mcp_scene.py','exec'),_m.__dict__); sys.modules['_mcp_scene']=_m",
++            "import types, sys, json; _c=open(json.loads(" + json.dumps(json.dumps(_tmp_safe)) + ")).read(); _m=types.ModuleType('_mcp_scene'); _m.__file__='<mcp:_mcp_scene>'; exec(compile(_c,'_mcp_scene.py','exec'),_m.__dict__); sys.modules['_mcp_scene']=_m",
+             _ResultType.NONE,
+         )
+     else:
+@@ -111,6 +113,15 @@ async def _execute_scene_code(
+ 
+     async def fetch():
+         result = await client.execute_code(code, result_type="JSON")
++        if getattr(result, "error", None):
++            err = result.error
++            etype = err.get("type", "Error") if isinstance(err, dict) else "Error"
++            emsg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
++            etb = err.get("traceback", "") if isinstance(err, dict) else ""
++            detail = f"Maya execution error ({etype}): {emsg}"
++            if etb:
++                detail += f"\n{etb}"
++            raise MayaExecutionError(detail)
+         return result.result
+ 
+     if use_cache and cache_key:
+@@ -124,6 +135,21 @@ async def _execute_scene_code(
+     return data
+ 
+ 
++def _scene_call(fn_name: str, *args: Any, **kwargs: Any) -> str:
++    """Build Maya-side call code with all arguments JSON-serialized.
++
++    Arguments are embedded as a JSON document inside a Python string
++    literal and reconstructed via json.loads inside Maya. This removes
++    the entire string-interpolation injection surface — user input never
++    becomes executable source text.
++    """
++    payload = json.dumps({"args": list(args), "kwargs": kwargs})
++    return (
++        f"import json, _mcp_scene; _a = json.loads({json.dumps(payload)}); "
++        f"_mcp_scene.{fn_name}(*_a['args'], **_a['kwargs'])"
++    )
++
++
+ # --- Token Budget Management ---
+ 
+ class TokenBudget:
+@@ -198,7 +224,7 @@ def register_scene_tools(mcp: Any) -> None:
+         # Get scene graph
+         scene_data = await _execute_scene_code(
+             client,
+-            f"_mcp_scene.get_scene_graph('{detail}')",
++            _scene_call("get_scene_graph", detail),
+             session_key,
+             use_cache=True,
+             cache_key=f"scene_graph_{detail}",
+@@ -207,7 +233,7 @@ def register_scene_tools(mcp: Any) -> None:
+         # Also get zone map
+         zone_data = await _execute_scene_code(
+             client,
+-            "_mcp_scene.get_zone_map()",
++            _scene_call("get_zone_map"),
+             session_key,
+             use_cache=True,
+             cache_key="zone_map",
+@@ -272,7 +298,7 @@ def register_scene_tools(mcp: Any) -> None:
+         # First try as a zone name
+         zone_data = await _execute_scene_code(
+             client,
+-            "_mcp_scene.get_zone_map()",
++            _scene_call("get_zone_map"),
+             session_key,
+             use_cache=True,
+             cache_key="zone_map",
+@@ -300,7 +326,7 @@ try:
+     import maya.api.OpenMaya as om2
+ 
+     sel = om2.MSelectionList()
+-    sel.add("{target}")
++    sel.add(json.loads({json.dumps(json.dumps(target))}))
+     dag = sel.getDagPath(0)
+     fn = om2.MFnDagNode(dag)
+     bbox = fn.boundingBox
+@@ -351,7 +377,7 @@ result
+         # Neighbors
+         neighbors = None
+         if include_neighbors and "error" not in obj_data:
+-            spatial_code = "_mcp_scene.get_spatial_index()"
++            spatial_code = _scene_call("get_spatial_index")
+             spatial_data = await _execute_scene_code(
+                 client, spatial_code, session_key,
+                 use_cache=True, cache_key="spatial_index",
+@@ -417,7 +443,7 @@ result
+         # Ensure module is injected
+         await _ensure_module_injected(client, session_key)
+ 
+-        code = f"_mcp_scene.measure('{obj_a}', '{obj_b}', '{mode}')"
++        code = _scene_call("measure", obj_a, obj_b, mode)
+         result = await _execute_scene_code(
+             client, code, session_key, use_cache=False
+         )
+@@ -460,10 +486,13 @@ result
+         # Ensure module is injected
+         await _ensure_module_injected(client, session_key)
+ 
+-        # Escape the expectations JSON for embedding in Python code
+-        expectations_escaped = expectations.replace("\\", "\\\\").replace('"', '\\"')
+-
+-        code = f'_mcp_scene.assert_scene_state("{expectations_escaped}")'
++        try:
++            json.loads(expectations)
++        except json.JSONDecodeError as e:
++            raise InputValidationError(
++                f"expectations must be valid JSON: {e}"
++            ) from e
++        code = _scene_call("assert_scene_state", expectations)
+         result = await _execute_scene_code(
+             client, code, session_key, use_cache=False
+         )
+@@ -507,8 +536,11 @@ result
+         client = await manager.get_client(session_key)
+         await _ensure_module_injected(client, session_key)
+ 
+-        rules_escaped = rules.replace('"', '\\"')
+-        code = f'_mcp_scene.check_constraints({rules})'
++        try:
++            rules_obj = json.loads(rules)
++        except json.JSONDecodeError as e:
++            raise InputValidationError(f"rules must be valid JSON: {e}") from e
++        code = _scene_call("check_constraints", rules_obj)
+         result = await _execute_scene_code(client, code, session_key, use_cache=False)
+ 
+         if format == "json":
+@@ -547,8 +579,7 @@ result
+         client = await manager.get_client(session_key)
+         await _ensure_module_injected(client, session_key)
+ 
+-        name_escaped = name.replace('"', '\\"')
+-        code = f'_mcp_scene.save_checkpoint("{name_escaped}")'
++        code = _scene_call("save_checkpoint", name)
+         result = await _execute_scene_code(client, code, session_key, use_cache=False)
+         return json.dumps(result, indent=2)
+ 
+@@ -574,8 +605,7 @@ result
+         client = await manager.get_client(session_key)
+         await _ensure_module_injected(client, session_key)
+ 
+-        filename_escaped = filename.replace('"', '\\"')
+-        code = f'_mcp_scene.rollback_to_checkpoint("{filename_escaped}")'
++        code = _scene_call("rollback_to_checkpoint", filename)
+         result = await _execute_scene_code(client, code, session_key, use_cache=False)
+         mark_dirty(session_key)
+         return json.dumps(result, indent=2)
+@@ -598,7 +628,7 @@ result
+         client = await manager.get_client(session_key)
+         await _ensure_module_injected(client, session_key)
+ 
+-        code = '_mcp_scene.list_checkpoints()'
++        code = _scene_call("list_checkpoints")
+         result = await _execute_scene_code(client, code, session_key, use_cache=False)
+         return json.dumps(result, indent=2)
+ 
+@@ -637,8 +667,10 @@ result
+         client = await manager.get_client(session_key)
+         await _ensure_module_injected(client, session_key)
+ 
+-        code = f'''import _mcp_scene
+-_mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth": {azimuth}, "elevation": {elevation}}})'''
++        code = _scene_call(
++            "create_camera_shot", target, shot_type, name,
++            {"azimuth": azimuth, "elevation": elevation},
++        )
+         result = await _execute_scene_code(client, code, session_key, use_cache=False)
+         mark_dirty(session_key)
+         return json.dumps(result, indent=2)
+@@ -669,7 +701,13 @@ _mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth":
+         client = await manager.get_client(session_key)
+         await _ensure_module_injected(client, session_key)
+ 
+-        code = f'_mcp_scene.create_orbit_camera({center}, {radius}, {frames}, "{name}")'
++        try:
++            center_obj = json.loads(center)
++        except json.JSONDecodeError as e:
++            raise InputValidationError(
++                f"center must be a JSON array [x, y, z]: {e}"
++            ) from e
++        code = _scene_call("create_orbit_camera", center_obj, radius, frames, name)
+         result = await _execute_scene_code(client, code, session_key, use_cache=False)
+         mark_dirty(session_key)
+         return json.dumps(result, indent=2)
+@@ -707,7 +745,7 @@ _mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth":
+         client = await manager.get_client(session_key)
+         await _ensure_module_injected(client, session_key)
+ 
+-        code = '_mcp_scene.analyze_aesthetics()'
++        code = _scene_call("analyze_aesthetics")
+         result = await _execute_scene_code(client, code, session_key, use_cache=False)
+ 
+         if format == "json":
+@@ -785,13 +823,10 @@ _mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth":
+         client = await manager.get_client(session_key)
+         await _ensure_module_injected(client, session_key)
+ 
+-        if checks == "all":
+-            checks_code = "None"
+-        else:
+-            check_list = [c.strip() for c in checks.split(",")]
+-            checks_code = json.dumps(check_list)
+-
+-        code = f'import _mcp_scene; _mcp_scene.scene_review({checks_code})'
++        checks_obj = None if checks == "all" else [
++            c.strip() for c in checks.split(",")
++        ]
++        code = _scene_call("scene_review", checks_obj)
+         result = await _execute_scene_code(client, code, session_key, use_cache=False)
+ 
+         if format == "json":
+@@ -843,9 +878,9 @@ _mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth":
+         client = await manager.get_client(session_key)
+         await _ensure_module_injected(client, session_key)
+ 
+-        obj_code = json.dumps(objective) if objective else "None"
+-        fix_code = "True" if auto_fix else "False"
+-        code = f"_mcp_scene.scene_plan(objective={obj_code}, auto_fix={fix_code})"
++        code = _scene_call(
++            "scene_plan", objective=objective or None, auto_fix=auto_fix
++        )
+         result = await _execute_scene_code(client, code, session_key, use_cache=False)
+ 
+         if format == "json":
+@@ -858,16 +893,21 @@ _mcp_scene.create_camera_shot("{target}", "{shot_type}", "{name}", {{"azimuth":
+             zone = result.get("zone_analysis", {})
+             actions = result.get("action_plan", [])
+ 
++            org_stats = org.get('stats', {})
+             out = [
+                 f"SCENE_PLAN[{health}/100] GRADE={grade}",
+-                f"  ORG: score={org.get('health_score', '?')} orphans={org.get('stats', {}).get('orphan_meshes', 0)} defaults={org.get('stats', {}).get('default_names', 0)}",
+-                f"  ZONE: coverage={zone.get('coverage', '?')} balance={zone.get('balance_score', '?')}",
++                f"  ORG: score={org.get('health_score', '?')} "
++                f"orphans={org_stats.get('orphan_meshes', 0)} "
++                f"defaults={org_stats.get('default_names', 0)}",
++                f"  ZONE: coverage={zone.get('coverage', '?')} "
++                f"balance={zone.get('balance_score', '?')}",
+             ]
+ 
+             if actions:
+                 out.append("  ACTIONS:")
+                 for a in actions[:5]:
+-                    out.append(f"    {a['step']}. [{a.get('priority','?').upper()}] {a.get('description', '')}")
++                    pri = a.get('priority', '?').upper()
++                    out.append(f"    {a['step']}. [{pri}] {a.get('description', '')}")
+ 
+             return "\n".join(out)
+ 
+diff --git a/src/maya_mcp_server/server.py b/src/maya_mcp_server/server.py
+index 013a601..ae335b9 100644
+--- a/src/maya_mcp_server/server.py
++++ b/src/maya_mcp_server/server.py
+@@ -7,6 +7,7 @@ from typing import Any
+ 
+ from fastmcp import FastMCP
+ 
++from maya_mcp_server.client import MayaExecutionError
+ from maya_mcp_server.connection_guide import (
+     get_agent_connection_instructions,
+     get_connection_diagnostics,
+@@ -285,9 +286,8 @@ async def execute_code(
+     Returns:
+         Captured result (None if result_type is NONE)
+ 
+-    Note: stdout and stderr are delivered in real-time via MCP Resource
+-    subscriptions (maya://sessions/{session_key}/stdout and /stderr).
+-    Call get_output() to retrieve buffered output.
++    Note: stdout and stderr are captured and exposed via the
++    maya://sessions/{session_key}/output MCP Resource.
+ 
+     Example:
+         # Execute statements
+@@ -350,6 +350,17 @@ async def execute_code(
+     # Mark scene cache dirty after code execution
+     mark_dirty(session_key)
+ 
++    # Surface Maya-side execution errors instead of silently dropping them
++    if getattr(result, "error", None):
++        err = result.error
++        etype = err.get("type", "Error") if isinstance(err, dict) else "Error"
++        emsg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
++        etb = err.get("traceback", "") if isinstance(err, dict) else ""
++        detail = f"Maya execution error ({etype}): {emsg}"
++        if etb:
++            detail += f"\n{etb}"
++        raise MayaExecutionError(sanitize_error_message(detail))
++
+     return result.result
+ 
+ 
+diff --git a/src/maya_mcp_server/types.py b/src/maya_mcp_server/types.py
+index a065f06..bd3912e 100644
+--- a/src/maya_mcp_server/types.py
++++ b/src/maya_mcp_server/types.py
+@@ -46,10 +46,8 @@ class ErrorInfo(TypedDict):
+ class ExecutionResult(TypedDict):
+     """Result of remote code execution.
+ 
+-    Note: stdout/stderr are delivered via MCP Resource subscriptions,
+-    not in this result. Subscribe to:
+-    - maya://sessions/{host}:{port}/stdout
+-    - maya://sessions/{host}:{port}/stderr
++    Note: stdout/stderr are captured and exposed via the
++    maya://sessions/{session_key}/output MCP Resource, not in this result.
+     """
+ 
+     result: Any | None  # Captured result (None if ResultType.NONE)
+diff --git a/tests/conftest.py b/tests/conftest.py
+index 6fb990b..e066ad0 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -3,10 +3,20 @@
+ from __future__ import annotations
+ 
+ import asyncio
++import sys
++from pathlib import Path
++from types import SimpleNamespace
+ 
+ import pytest
+ 
+ 
++# tests/ dir is on sys.path under pytest prepend import mode; be explicit
++# so maya_stub also resolves when tests are imported as a package.
++sys.path.insert(0, str(Path(__file__).parent))
++
++import maya_stub  # noqa: E402
++
++
+ @pytest.fixture
+ def mock_port() -> int:
+     """Return a port for the mock server."""
+@@ -19,3 +29,23 @@ def event_loop():
+     loop = asyncio.new_event_loop()
+     yield loop
+     loop.close()
++
++
++@pytest.fixture
++def maya_env():
++    """Install the maya stub and import maya_scene_module bound to it.
++
++    Yields a namespace: .scene (stub Scene builder), .module (the
++    maya_scene_module under test), .cmds (stub maya.cmds).
++    """
++    scene = maya_stub.install()
++    module = maya_stub.load_scene_module()
++    env = SimpleNamespace(
++        scene=scene,
++        module=module,
++        cmds=sys.modules["maya.cmds"],
++        om2=sys.modules["maya.api.OpenMaya"],
++    )
++    yield env
++    maya_stub.uninstall()
++    sys.modules.pop("maya_mcp_server.maya_scene_module", None)
+diff --git a/tests/maya_stub/__init__.py b/tests/maya_stub/__init__.py
+new file mode 100644
+index 0000000..6767e91
+--- /dev/null
++++ b/tests/maya_stub/__init__.py
+@@ -0,0 +1,77 @@
++"""Maya stub package — fake maya.cmds + maya.api.OpenMaya.
++
++Purpose (D-004 / ADR-0002): run maya_scene_module.py logic in pytest
++WITHOUT a real Maya install. The stub implements a real DAG scene graph,
++row-major matrix math, and 8-corner world-bbox transforms — semantically
++correct, so tests catch real math bugs (e.g. min*M/max*M shortcuts).
++
++Usage in tests:
++
++    def test_x(maya_env):
++        maya_env.scene.add_mesh("GEO_box", t=(10, 0, 0))
++        result = maya_env.module.measure("GEO_box", "GEO_other", "bbox")
++
++The fixture installs stub modules into sys.modules, imports
++maya_scene_module bound to the stub, and cleans up afterwards.
++
++NOT a Maya replacement: it models just enough cmds/OpenMaya surface used
++by the scene module. Real-Maya verification stays on the mayapy tier
++(docs/testing.md — manual, local-only, never in CI).
++"""
++
++from __future__ import annotations
++
++import sys
++import types
++
++from . import cmds as _cmds
++from . import openmaya as _om2
++from . import runtime
++from .scene import Scene
++
++
++_MODULES = ("maya.api.OpenMaya", "maya.api", "maya.cmds", "maya")
++
++
++def install(scene=None):
++    """Install fake maya.* modules into sys.modules. Returns the Scene."""
++    sc = scene or Scene()
++    runtime.scene = sc
++
++    maya = types.ModuleType("maya")
++    maya_cmds = types.ModuleType("maya.cmds")
++    for name in dir(_cmds):
++        if not name.startswith("_") or name in ("_s",):
++            setattr(maya_cmds, name, getattr(_cmds, name))
++    # private helpers that module code might use anyway
++    maya_cmds.__dict__.update({k: getattr(_cmds, k) for k in dir(_cmds) if not k.startswith("__")})
++
++    maya_api = types.ModuleType("maya.api")
++    om = types.ModuleType("maya.api.OpenMaya")
++    om.__dict__.update({k: getattr(_om2, k) for k in dir(_om2) if not k.startswith("__")})
++
++    maya.cmds = maya_cmds
++    maya.api = maya_api
++    maya_api.OpenMaya = om
++
++    sys.modules["maya"] = maya
++    sys.modules["maya.cmds"] = maya_cmds
++    sys.modules["maya.api"] = maya_api
++    sys.modules["maya.api.OpenMaya"] = om
++    return sc
++
++
++def uninstall():
++    for m in _MODULES:
++        sys.modules.pop(m, None)
++    runtime.scene = None
++
++
++def load_scene_module():
++    """Import maya_scene_module fresh, bound to the installed stub."""
++    sys.modules.pop("maya_mcp_server.maya_scene_module", None)
++    import maya_mcp_server.maya_scene_module as msm
++    return msm
++
++
++__all__ = ["Scene", "install", "uninstall", "load_scene_module", "runtime"]
+diff --git a/tests/maya_stub/cmds.py b/tests/maya_stub/cmds.py
+new file mode 100644
+index 0000000..556590d
+--- /dev/null
++++ b/tests/maya_stub/cmds.py
+@@ -0,0 +1,343 @@
++"""Fake maya.cmds over the stub Scene.
++
++Implements the subset of cmds used by maya_scene_module and generated
++scene_tools code. Long names, type filters, connections, keyframes,
++file ops and constraints are all recorded on the Scene for assertions.
++"""
++
++from __future__ import annotations
++
++import math
++
++from . import runtime
++from .scene import LIGHT_TYPES, SHAPE_TYPES
++
++
++def _s():
++    if runtime.scene is None:
++        raise RuntimeError("maya stub not installed")
++    return runtime.scene
++
++
++_TYPE_FILTERS = {
++    "transform": lambda n: n.type == "transform",
++    "mesh": lambda n: n.type == "mesh",
++    "camera": lambda n: n.type == "camera",
++    "locator": lambda n: n.type == "locator",
++    "nurbsCurve": lambda n: n.type == "nurbsCurve",
++    "joint": lambda n: n.type == "joint",
++    "light": lambda n: n.type in LIGHT_TYPES,
++    "shadingEngine": lambda n: n.type == "shadingEngine",
++}
++
++_MATERIAL_TYPES = {"lambert", "phong", "blinn", "surfaceShader", "aiStandardSurface"}
++
++
++def ls(*args, **kwargs):
++    sc = _s()
++    ntype = kwargs.get("type")
++    long_ = kwargs.get("long") or kwargs.get("l")
++    materials = kwargs.get("materials")
++
++    if args and isinstance(args[0], (list, tuple)):
++        names = []
++        for nm in args[0]:
++            try:
++                node = sc.resolve(nm)
++            except RuntimeError:
++                continue
++            if materials and node.type not in _MATERIAL_TYPES:
++                continue
++            names.append(sc.long_name(node) if long_ else node.name)
++        return names or None
++
++    nodes = sc.all_nodes()
++    if ntype is not None:
++        if isinstance(ntype, (list, tuple)):
++            preds = [_TYPE_FILTERS.get(t) or (lambda n, t=t: n.type == t) for t in ntype]
++            nodes = [n for n in nodes if any(p(n) for p in preds)]
++        else:
++            pred = _TYPE_FILTERS.get(ntype) or (lambda n: n.type == ntype)
++            nodes = [n for n in nodes if pred(n)]
++    if materials:
++        nodes = [n for n in nodes if n.type in _MATERIAL_TYPES]
++
++    out = [sc.long_name(n) if long_ else n.name for n in nodes]
++    return out if out else None
++
++
++def objExists(ref):
++    sc = _s()
++    ref = str(ref)
++    if "." in ref:
++        node_ref, attr = ref.split(".", 1)
++        try:
++            node = sc.resolve(node_ref)
++        except RuntimeError:
++            return False
++        return attr.split("[")[0] in node.attrs
++    return sc.exists(ref)
++
++
++def nodeType(ref):
++    return _s().resolve(ref).type
++
++
++def listRelatives(ref, parent=False, children=False, type=None, fullPath=False, shapes=False, **kw):
++    sc = _s()
++    node = sc.resolve(ref)
++    if parent:
++        if node.parent is None:
++            return None
++        return [sc.long_name(node.parent) if fullPath else node.parent.name]
++    if children or shapes:
++        kids = list(node.children)
++        if type is not None:
++            pred = _TYPE_FILTERS.get(type) or (lambda n: n.type == type)
++            kids = [k for k in kids if pred(k)]
++        if shapes:
++            kids = [k for k in kids if k.type in SHAPE_TYPES]
++        out = [sc.long_name(k) if fullPath else k.name for k in kids]
++        return out if out else None
++    return None
++
++
++def listConnections(ref, type=None, **kwargs):
++    sc = _s()
++    ref = str(ref)
++    node_ref, attr = ref.split(".", 1) if "." in ref else (ref, "")
++    try:
++        node = sc.resolve(node_ref)
++    except RuntimeError:
++        return None
++
++    if attr.startswith("instObjGroups"):
++        targets = []
++        cand = [node] if node.type in SHAPE_TYPES else []
++
++        def walk(n):
++            for c in n.children:
++                if c.type in SHAPE_TYPES:
++                    cand.append(c)
++                walk(c)
++
++        walk(node)
++        for c in cand:
++            for t in sc.connections.get(c.name + "." + attr, []):
++                if type is None or sc.resolve(t).type == type:
++                    targets.append(t)
++        return targets or None
++
++    targets = sc.connections.get(node.name + "." + attr, [])
++    if type is not None:
++        targets = [t for t in targets if sc.resolve(t).type == type]
++    return targets or None
++
++
++def sets(ref, query=False, **kwargs):
++    sc = _s()
++    if query:
++        return sc.set_members.get(sc.resolve(ref).name, []) or None
++    return None
++
++
++def getAttr(ref):
++    sc = _s()
++    node_ref, attr = str(ref).split(".", 1)
++    node = sc.resolve(node_ref)
++    attr = attr.split("[")[0]
++    if attr in node.attrs:
++        v = node.attrs[attr]
++        if isinstance(v, tuple):
++            return [v]
++        return v
++    raise RuntimeError("No attribute: " + ref)
++
++
++def currentUnit(query=False, linear=False, angle=False, time=False, **kw):
++    sc = _s()
++    if linear:
++        return sc.linear_unit
++    if angle:
++        return sc.angular_unit
++    if time:
++        return sc.time_unit
++    return sc.linear_unit
++
++
++def upAxis(query=False, axis=False, **kw):
++    return _s().up_axis
++
++
++def about(version=False, **kw):
++    return "2024.0-stub" if version else "MayaStub"
++
++
++def file(*args, **kwargs):
++    sc = _s()
++    sc.file_calls.append({"args": args, "kwargs": dict(kwargs)})
++    if kwargs.get("query") or kwargs.get("q"):
++        if kwargs.get("sceneName") or kwargs.get("sn"):
++            return sc.scene_path
++    if kwargs.get("rename"):
++        sc.scene_path = kwargs["rename"]
++        return sc.scene_path
++    if kwargs.get("open") or kwargs.get("o"):
++        sc.scene_path = args[0]
++        return sc.scene_path
++    if kwargs.get("exportAll"):
++        return args[0] if args else ""
++    if kwargs.get("save") or kwargs.get("saveAs"):
++        sc.scene_path = args[0] if args else sc.scene_path
++        return sc.scene_path
++    return None
++
++
++def move(x, y=None, z=None, *objects, **kwargs):
++    sc = _s()
++    if y is None and z is None:
++        x, y, z = x
++    for o in (objects or sc.selection):
++        sc.resolve(o).t = [x, y, z]
++
++
++def rotate(x, y, z, *objects, **kwargs):
++    sc = _s()
++    for o in (objects or sc.selection):
++        sc.resolve(o).r = [x, y, z]
++
++
++def scale(x, y, z, *objects, **kwargs):
++    sc = _s()
++    for o in (objects or sc.selection):
++        sc.resolve(o).s = [x, y, z]
++
++
++def xform(ref, query=False, q=False, ws=False, t=False, ro=False, **kw):
++    sc = _s()
++    node = sc.resolve(ref)
++    if q or query:
++        if t:
++            m = sc.inclusive_matrix(node)
++            return [m[12], m[13], m[14]]
++        if ro:
++            return list(sc.world_rotation(node))
++    return None
++
++
++def camera(name="camera1", focalLength=35.0, **kw):
++    sc = _s()
++    tr = sc.add_transform(name)
++    sh = sc.add_shape(name + "Shape", "camera", tr)
++    sh.attrs["focalLength"] = focalLength
++    return [tr.name, sh.name]
++
++
++def spaceLocator(name="locator1", **kw):
++    sc = _s()
++    tr = sc.add_transform(name)
++    sc.add_shape(name + "Shape", "locator", tr)
++    return [tr.name, tr.name + "Shape"]
++
++
++def rename(ref, new_name):
++    sc = _s()
++    node = sc.resolve(ref)
++    lst = sc.nodes.get(node.name, [])
++    if node in lst:
++        lst.remove(node)
++        if not lst:
++            del sc.nodes[node.name]
++    new_name = sc._unique_name(new_name)
++    node.name = new_name
++    sc.nodes.setdefault(new_name, []).append(node)
++    return new_name
++
++
++def select(*args, **kwargs):
++    sc = _s()
++    flat = []
++    for a in args:
++        flat.extend(a if isinstance(a, (list, tuple)) else [a])
++    sc.selection = flat
++
++
++def aimConstraint(*args, **kwargs):
++    """Record the constraint AND apply the equivalent static aim rotation.
++
++    Real Maya evaluates constraints every refresh; the stub computes the
++    same orientation once so tests can assert the camera actually aims.
++    A None target raises, matching Maya.
++    """
++    sc = _s()
++    target = args[0] if args else None
++    if target is None:
++        raise RuntimeError("aimConstraint: target cannot be None")
++    tnode = sc.resolve(target)
++    constrained = sc.resolve(args[1])
++    sc.constraints.append({"target": tnode.name, "constrained": constrained.name,
++                           "kwargs": dict(kwargs)})
++    tp = sc.world_position(tnode)
++    cp = sc.world_position(constrained)
++    dx, dy, dz = tp[0] - cp[0], tp[1] - cp[1], tp[2] - cp[2]
++    dist_xz = math.sqrt(dx * dx + dz * dz)
++    if dist_xz > 1e-9 or abs(dy) > 1e-9:
++        ry = math.degrees(math.atan2(-dx, -dz))
++        rx = math.degrees(math.atan2(dy, dist_xz)) if dist_xz > 1e-9 else (-90 if dy > 0 else 90)
++        constrained.r = [rx, ry, 0.0]
++    return [constrained.name + "_aimConstraint1"]
++
++
++def currentTime(t=None, edit=False, **kw):
++    sc = _s()
++    if edit and t is not None:
++        sc.current_time = t
++    return sc.current_time
++
++
++def setKeyframe(ref, attribute=None, **kw):
++    _s().keyed.append((str(ref), attribute))
++
++
++def keyTangent(*args, **kwargs):
++    return None
++
++
++def playbackOptions(min=None, max=None, **kw):
++    sc = _s()
++    if min is not None or max is not None:
++        sc.playback_range = [
++            min if min is not None else sc.playback_range[0],
++            max if max is not None else sc.playback_range[1],
++        ]
++    return sc.playback_range
++
++
++def group(*args, name="group1", **kw):
++    sc = _s()
++    g = sc.add_transform(name)
++    for a in args:
++        node = sc.resolve(a)
++        if node.parent is not None:
++            node.parent.children.remove(node)
++        elif node in sc.roots:
++            sc.roots.remove(node)
++        node.parent = g
++        g.children.append(node)
++    return g.name
++
++
++def delete(*args):
++    sc = _s()
++    for a in args:
++        node = sc.resolve(a)
++        if node.parent is not None:
++            node.parent.children.remove(node)
++        elif node in sc.roots:
++            sc.roots.remove(node)
++        lst = sc.nodes.get(node.name, [])
++        if node in lst:
++            lst.remove(node)
++            if not lst:
++                del sc.nodes[node.name]
++        sc.deleted.append(node.name)
+diff --git a/tests/maya_stub/math3d.py b/tests/maya_stub/math3d.py
+new file mode 100644
+index 0000000..02a40be
+--- /dev/null
++++ b/tests/maya_stub/math3d.py
+@@ -0,0 +1,176 @@
++"""Semantically-correct matrix/bbox math for the maya stub.
++
++Mirrors OpenMaya conventions: row-major 4x4 matrices, row-vector points
++(p' = p * M), translation in elements [12],[13],[14], rotation order XYZ
++(Maya default rotateOrder), degrees for cmds-level APIs.
++
++If this math is wrong the stub produces false greens — keep it honest.
++"""
++
++from __future__ import annotations
++
++import math
++
++
++class MPoint:
++    """Point/vector with Maya-style indexing and matrix transform."""
++
++    __slots__ = ("x", "y", "z", "w")
++
++    def __init__(self, x=0.0, y=0.0, z=0.0, w=1.0):
++        self.x, self.y, self.z, self.w = float(x), float(y), float(z), float(w)
++
++    def __getitem__(self, i):
++        return (self.x, self.y, self.z, self.w)[i]
++
++    def __iter__(self):
++        return iter((self.x, self.y, self.z))
++
++    def __mul__(self, m):
++        """p * MMatrix (row-vector convention)."""
++        x, y, z, w = self.x, self.y, self.z, self.w
++        rx = x * m[0] + y * m[4] + z * m[8] + w * m[12]
++        ry = x * m[1] + y * m[5] + z * m[9] + w * m[13]
++        rz = x * m[2] + y * m[6] + z * m[10] + w * m[14]
++        rw = x * m[3] + y * m[7] + z * m[11] + w * m[15]
++        if rw not in (0.0, 1.0):
++            rx, ry, rz = rx / rw, ry / rw, rz / rw
++        return MPoint(rx, ry, rz)
++
++    def __sub__(self, other):
++        return MPoint(self.x - other[0], self.y - other[1], self.z - other[2])
++
++    def distanceTo(self, other):
++        dx, dy, dz = self.x - other[0], self.y - other[1], self.z - other[2]
++        return math.sqrt(dx * dx + dy * dy + dz * dz)
++
++    def __repr__(self):
++        return f"MPoint({self.x}, {self.y}, {self.z})"
++
++
++class MVector(MPoint):
++    """Vector — same math as MPoint, w=0 semantic."""
++
++    def __init__(self, x=0.0, y=0.0, z=0.0):
++        super().__init__(x, y, z, 0.0)
++
++
++def _matmul(a, b):
++    """Row-major 4x4 multiply: out[r][c] = sum_k a[r][k] * b[k][c]."""
++    out = [0.0] * 16
++    for r in range(4):
++        for c in range(4):
++            out[r * 4 + c] = (
++                a[r * 4 + 0] * b[0 * 4 + c]
++                + a[r * 4 + 1] * b[1 * 4 + c]
++                + a[r * 4 + 2] * b[2 * 4 + c]
++                + a[r * 4 + 3] * b[3 * 4 + c]
++            )
++    return out
++
++
++class MMatrix:
++    """Row-major 4x4 matrix. m[i] flat indexing like OpenMaya."""
++
++    def __init__(self, values=None):
++        if values is None:
++            self._m = [1.0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
++        else:
++            assert len(values) == 16
++            self._m = [float(v) for v in values]
++
++    def __getitem__(self, i):
++        return self._m[i]
++
++    def __mul__(self, other):
++        if isinstance(other, MMatrix):
++            return MMatrix(_matmul(self._m, other._m))
++        if isinstance(other, MPoint):
++            return other * self
++        return NotImplemented
++
++    @property
++    def translation(self):
++        return (self._m[12], self._m[13], self._m[14])
++
++    def __repr__(self):
++        return f"MMatrix({self._m})"
++
++
++def rotation_matrices(rx_deg, ry_deg, rz_deg):
++    """Per-axis row-vector rotation matrices (degrees)."""
++    rx, ry, rz = (math.radians(v) for v in (rx_deg, ry_deg, rz_deg))
++    cx, sx = math.cos(rx), math.sin(rx)
++    cy, sy = math.cos(ry), math.sin(ry)
++    cz, sz = math.cos(rz), math.sin(rz)
++    Rx = [1, 0, 0, 0, 0, cx, sx, 0, 0, -sx, cx, 0, 0, 0, 0, 1]
++    Ry = [cy, 0, -sy, 0, 0, 1, 0, 0, sy, 0, cy, 0, 0, 0, 0, 1]
++    Rz = [cz, sz, 0, 0, -sz, cz, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
++    return Rx, Ry, Rz
++
++
++def trs_matrix(t=(0, 0, 0), r=(0, 0, 0), s=(1, 1, 1)) -> MMatrix:
++    """Maya local matrix: row-vector p * S * Rx * Ry * Rz * T."""
++    S = [s[0], 0, 0, 0, 0, s[1], 0, 0, 0, 0, s[2], 0, 0, 0, 0, 1]
++    T = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, t[0], t[1], t[2], 1]
++    Rx, Ry, Rz = rotation_matrices(*r)
++    return MMatrix(_matmul(_matmul(_matmul(_matmul(S, Rx), Ry), Rz), T))
++
++
++def euler_from_matrix(m) -> tuple:
++    """Extract XYZ-order euler (degrees) from row-vector rotation matrix.
++
++    Rows are normalized first to strip uniform/non-uniform scale.
++    For R = Rx*Ry*Rz: ry = asin(-R[0][2]), rx = atan2(R[1][2], R[2][2]),
++    rz = atan2(R[0][1], R[0][0]).
++    """
++    rows = []
++    for r in range(3):
++        v = [m[r * 4 + c] for c in range(3)]
++        n = math.sqrt(sum(x * x for x in v)) or 1.0
++        rows.append([x / n for x in v])
++    ry = math.asin(max(-1.0, min(1.0, -rows[0][2])))
++    rx = math.atan2(rows[1][2], rows[2][2])
++    rz = math.atan2(rows[0][1], rows[0][0])
++    return (math.degrees(rx), math.degrees(ry), math.degrees(rz))
++
++
++class MBoundingBox:
++    """Axis-aligned box; empty until expand() is called."""
++
++    __slots__ = ("min", "max")
++
++    def __init__(self, min_point=None, max_point=None):
++        if min_point is None:
++            self.min = MPoint(float("inf"), float("inf"), float("inf"))
++            self.max = MPoint(float("-inf"), float("-inf"), float("-inf"))
++        else:
++            self.min = MPoint(*min_point[:3])
++            self.max = MPoint(*max_point[:3])
++
++    def expand(self, p):
++        mn = [self.min.x, self.min.y, self.min.z]
++        mx = [self.max.x, self.max.y, self.max.z]
++        for i in range(3):
++            mn[i] = min(mn[i], p[i])
++            mx[i] = max(mx[i], p[i])
++        self.min = MPoint(*mn)
++        self.max = MPoint(*mx)
++
++    @property
++    def is_empty(self):
++        return self.min.x > self.max.x
++
++    def corners(self):
++        """The 8 bbox corners — the ONLY correct way to get a world AABB."""
++        out = []
++        for i in range(8):
++            out.append(MPoint(
++                self.min.x if i & 1 else self.max.x,
++                self.min.y if i & 2 else self.max.y,
++                self.min.z if i & 4 else self.max.z,
++            ))
++        return out
++
++    def __repr__(self):
++        return f"MBoundingBox(min={self.min}, max={self.max})"
+diff --git a/tests/maya_stub/openmaya.py b/tests/maya_stub/openmaya.py
+new file mode 100644
+index 0000000..259caff
+--- /dev/null
++++ b/tests/maya_stub/openmaya.py
+@@ -0,0 +1,139 @@
++"""Fake maya.api.OpenMaya over the stub Scene."""
++
++from __future__ import annotations
++
++from . import runtime
++from .math3d import MBoundingBox, MMatrix, MPoint, MVector
++
++
++class MSpace:
++    kWorld = 0
++    kObject = 1
++
++
++class MDagPath:
++    """Path to a DAG node: wraps a Node plus its root->node chain."""
++
++    def __init__(self, other=None):
++        if other is None:
++            self._node = None
++            self._path = []
++        elif isinstance(other, MDagPath):
++            self._node = other._node
++            self._path = list(other._path)
++        else:  # Node
++            self._node = other
++            self._path = other.path_nodes()
++
++    @staticmethod
++    def getAPathTo(node_or_path):
++        if isinstance(node_or_path, MDagPath):
++            return MDagPath(node_or_path)
++        return MDagPath(node_or_path)
++
++    def node(self):
++        if self._node is None:
++            raise RuntimeError("empty MDagPath")
++        return self._node
++
++    def inclusiveMatrix(self):
++        return runtime.scene.inclusive_matrix(self.node())
++
++    def length(self):
++        return len(self._path)
++
++    def pop(self):
++        if self._path:
++            self._path = self._path[:-1]
++            self._node = self._path[-1] if self._path else None
++
++    def childCount(self):
++        return len(self.node().children)
++
++    def child(self, i):
++        return MDagPath(self.node().children[i])
++
++
++class MSelectionList:
++    def __init__(self):
++        self._nodes = []
++
++    def add(self, name):
++        if name == "*":
++            self._nodes.extend(runtime.scene.all_nodes())
++            return
++        self._nodes.append(runtime.scene.resolve(name))
++
++    def length(self):
++        return len(self._nodes)
++
++    def getDagPath(self, i):
++        return MDagPath(self._nodes[i])
++
++
++class MFnDagNode:
++    def __init__(self, dag_or_node):
++        if isinstance(dag_or_node, MDagPath):
++            self._node = dag_or_node.node()
++        else:
++            self._node = dag_or_node
++
++    @property
++    def boundingBox(self):
++        return runtime.scene.object_bbox(self._node)
++
++    @property
++    def typeName(self):
++        return self._node.type
++
++    @property
++    def isIntermediateObject(self):
++        return self._node.intermediate
++
++    def name(self):
++        return self._node.name
++
++    def fullPathName(self):
++        return runtime.scene.long_name(self._node)
++
++
++class MFnMesh(MFnDagNode):
++    @property
++    def numVertices(self):
++        return self._node.num_vertices
++
++    @property
++    def numPolygons(self):
++        return self._node.num_polygons
++
++    def getPoint(self, i, space=MSpace.kObject):
++        node = self._node
++        mn, mx = node.bbox or ((0, 0, 0), (0, 0, 0))
++        corners = [
++            MPoint(mn[0] if k & 1 else mx[0],
++                   mn[1] if k & 2 else mx[1],
++                   mn[2] if k & 4 else mx[2])
++            for k in range(8)
++        ]
++        p = corners[i % 8]
++        if space == MSpace.kWorld:
++            p = p * runtime.scene.inclusive_matrix(node)
++        return p
++
++
++class MItDag:
++    kBreadthFirst = 0
++    kDepthFirst = 1
++
++    def __init__(self, traversal=kDepthFirst):
++        self._items = []
++
++    def reset(self, dag=None):
++        self._items = runtime.scene.all_nodes()
++
++    def next(self):
++        if self._items:
++            self._items.pop(0)
++
++    def isDone(self):
++        return not self._items
+diff --git a/tests/maya_stub/runtime.py b/tests/maya_stub/runtime.py
+new file mode 100644
+index 0000000..ef54378
+--- /dev/null
++++ b/tests/maya_stub/runtime.py
+@@ -0,0 +1,6 @@
++"""Holds the currently-installed stub Scene.
++
++cmds/openmaya facades read `scene` from here; install() resets it.
++"""
++
++scene = None
+diff --git a/tests/maya_stub/scene.py b/tests/maya_stub/scene.py
+new file mode 100644
+index 0000000..1adbf5b
+--- /dev/null
++++ b/tests/maya_stub/scene.py
+@@ -0,0 +1,252 @@
++"""Scene graph model backing the maya stub.
++
++A Scene holds nodes (transforms + shapes + shading engines + materials),
++a connection graph, and recorded side effects (constraints, keyframes,
++file ops) that tests can assert on.
++"""
++
++from __future__ import annotations
++
++from .math3d import MBoundingBox, MMatrix, MPoint, euler_from_matrix, trs_matrix
++
++
++LIGHT_TYPES = {
++    "spotLight", "pointLight", "directionalLight",
++    "areaLight", "volumeLight", "ambientLight",
++}
++SHAPE_TYPES = LIGHT_TYPES | {"mesh", "camera", "locator", "nurbsCurve", "joint"}
++
++
++class Node:
++    __slots__ = (
++        "scene", "name", "type", "parent", "children",
++        "t", "r", "s", "bbox", "attrs", "intermediate",
++        "num_vertices", "num_polygons", "keyframes",
++    )
++
++    def __init__(self, scene, name, ntype, parent=None):
++        self.scene = scene
++        self.name = name
++        self.type = ntype
++        self.parent = parent
++        self.children = []
++        self.t = [0.0, 0.0, 0.0]
++        self.r = [0.0, 0.0, 0.0]
++        self.s = [1.0, 1.0, 1.0]
++        self.bbox = None  # (min3, max3) object-space, shape nodes only
++        self.attrs = {}
++        self.intermediate = False
++        self.num_vertices = 8
++        self.num_polygons = 6
++        self.keyframes = {}
++
++    def path_nodes(self):
++        """Nodes root -> self inclusive."""
++        out = []
++        n = self
++        while n is not None:
++            out.append(n)
++            n = n.parent
++        out.reverse()
++        return out
++
++
++class Scene:
++    """A fake Maya scene: node table + DAG hierarchy + recorded calls."""
++
++    def __init__(self):
++        self.nodes = {}          # short name -> [Node] (dup short names possible)
++        self.roots = []
++        self.scene_path = ""     # cmds.file(q, sceneName)
++        self.linear_unit = "cm"
++        self.angular_unit = "deg"
++        self.time_unit = "film"
++        self.up_axis = "y"
++        self.current_time = 1
++        self.playback_range = [1, 120]
++        self.selection = []
++        self.constraints = []    # recorded aimConstraint calls
++        self.connections = {}    # "node.attr" -> [target node names]
++        self.set_members = {}    # shadingEngine -> [member names]
++        self.keyed = []          # (node, attribute) setKeyframe calls
++        self.file_calls = []     # recorded cmds.file invocations
++        self.deleted = []
++
++    # ---- construction helpers (test-facing API) ----
++
++    def _unique_name(self, name):
++        if name not in self.nodes:
++            return name
++        i = 1
++        while f"{name}{i}" in self.nodes:
++            i += 1
++        return f"{name}{i}"
++
++    def add_node(self, name, ntype, parent=None, exists_ok=False):
++        if isinstance(parent, str):
++            parent = self.resolve(parent)
++        if name in self.nodes and not exists_ok:
++            name = self._unique_name(name)
++        node = Node(self, name, ntype, parent)
++        self.nodes.setdefault(name, []).append(node)
++        if parent is not None:
++            parent.children.append(node)
++        else:
++            self.roots.append(node)
++        return node
++
++    def add_transform(self, name, t=(0, 0, 0), r=(0, 0, 0), s=(1, 1, 1), parent=None):
++        node = self.add_node(name, "transform", parent)
++        node.t, node.r, node.s = list(t), list(r), list(s)
++        return node
++
++    def add_shape(self, name, ntype, parent, bbox=None, **attrs):
++        node = self.add_node(name, ntype, parent)
++        node.bbox = bbox
++        node.attrs.update(attrs)
++        return node
++
++    def add_mesh(self, name, bbox_min=(-50, -50, -50), bbox_max=(50, 50, 50),
++                 t=(0, 0, 0), r=(0, 0, 0), s=(1, 1, 1), parent=None,
++                 num_vertices=8, num_polygons=6):
++        """Create transform + mesh shape child (Maya layout). Returns transform."""
++        tr = self.add_transform(name, t=t, r=r, s=s, parent=parent)
++        sh = self.add_shape(name + "Shape", "mesh", tr, bbox=(bbox_min, bbox_max))
++        sh.num_vertices = num_vertices
++        sh.num_polygons = num_polygons
++        return tr
++
++    def add_camera(self, name, t=(0, 0, 0), r=(0, 0, 0), parent=None):
++        tr = self.add_transform(name, t=t, r=r, parent=parent)
++        self.add_shape(name + "Shape", "camera", tr)
++        return tr
++
++    def add_light(self, name, ltype="spotLight", t=(0, 0, 0), r=(0, 0, 0),
++                  parent=None, **attrs):
++        tr = self.add_transform(name, t=t, r=r, parent=parent)
++        defaults = {
++            "color": (1.0, 1.0, 1.0), "intensity": 1.0,
++            "decayRate": 0, "useDepthMapShadow": 1,
++        }
++        if ltype == "spotLight":
++            defaults.update({"coneAngle": 40.0, "penumbraAngle": 10.0,
++                             "emitDiffuse": 1, "emitSpecular": 1})
++        if ltype == "areaLight":
++            defaults.update({"areaWidth": 10.0, "areaHeight": 10.0,
++                             "emitDiffuse": 1, "emitSpecular": 1})
++        defaults.update(attrs)
++        self.add_shape(name + "Shape", ltype, tr, **defaults)
++        return tr
++
++    def add_locator(self, name, t=(0, 0, 0), parent=None):
++        tr = self.add_transform(name, t=t, parent=parent)
++        self.add_shape(name + "Shape", "locator", tr)
++        return tr
++
++    def add_group(self, name, parent=None):
++        return self.add_transform(name, parent=parent)
++
++    def add_material(self, name, color=(0.5, 0.5, 0.5), assign_to=()):
++        """Material + shadingEngine + connections, like Maya's SG wiring."""
++        mat = self.add_node(name, "lambert")
++        mat.attrs["color"] = tuple(color)
++        sg = self.add_node(name + "SG", "shadingEngine")
++        self.connections[sg.name + ".surfaceShader"] = [mat.name]
++        members = []
++        for target in assign_to:
++            node = self.resolve(target)
++            shape = next((c for c in node.children if c.type in SHAPE_TYPES), node)
++            self.connections.setdefault(
++                shape.name + ".instObjGroups[0]", []).append(sg.name)
++            members.append(self.long_name(shape))
++        self.set_members[sg.name] = members
++        return mat
++
++    # ---- resolution ----
++
++    def resolve(self, ref):
++        """Resolve a name ref (long path |a|b or short name) to a Node."""
++        if isinstance(ref, Node):
++            return ref
++        ref = str(ref).split(".")[0]  # strip .attr
++        if ref.startswith("|"):
++            parts = [p for p in ref.split("|") if p]
++            node = None
++            level = self.roots
++            for p in parts:
++                node = next((n for n in level if n.name == p), None)
++                if node is None:
++                    raise RuntimeError(f"No object matches name: {ref}")
++                level = node.children
++            return node
++        matches = self.nodes.get(ref)
++        if not matches:
++            raise RuntimeError(f"No object matches name: {ref}")
++        if len(matches) > 1:
++            raise RuntimeError(f"Ambiguous object name: {ref}")
++        return matches[0]
++
++    def exists(self, ref):
++        try:
++            self.resolve(ref)
++            return True
++        except RuntimeError:
++            return False
++
++    def long_name(self, node):
++        return "|" + "|".join(n.name for n in node.path_nodes())
++
++    def all_nodes(self):
++        out = []
++        def walk(n):
++            out.append(n)
++            for c in n.children:
++                walk(c)
++        for r in self.roots:
++            walk(r)
++        return out
++
++    def transforms(self):
++        return [n for n in self.all_nodes() if n.type == "transform"]
++
++    # ---- matrices ----
++
++    def local_matrix(self, node):
++        return trs_matrix(node.t, node.r, node.s)
++
++    def inclusive_matrix(self, node):
++        """world = p * L_self * L_parent * ... * L_root (row-vector)."""
++        chain = node.path_nodes()  # [root .. self]
++        acc = MMatrix()
++        for n in chain[::-1]:  # L_self * L_parent * ... * L_root
++            acc = acc * self.local_matrix(n)
++        return acc
++
++    def world_position(self, node):
++        m = self.inclusive_matrix(node)
++        return (m[12], m[13], m[14])
++
++    def world_rotation(self, node):
++        return euler_from_matrix(self.inclusive_matrix(node))
++
++    def object_bbox(self, node):
++        """MFnDagNode.boundingBox: shape -> stored; transform -> union of
++        descendant shape bboxes transformed into this node's local space."""
++        box = MBoundingBox()
++        if node.type in SHAPE_TYPES and node.bbox is not None:
++            box.expand(MPoint(*node.bbox[0]))
++            box.expand(MPoint(*node.bbox[1]))
++            return box
++        # transform: gather descendant shapes into node-local space
++        def walk(n, m_to_node):
++            for c in n.children:
++                rel = m_to_node  # matrix mapping c-local -> node-local
++                c_local = self.local_matrix(c)
++                c2node = c_local * rel  # p * L_c * (rest)
++                if c.type in SHAPE_TYPES and c.bbox is not None:
++                    cb = MBoundingBox(*c.bbox)
++                    for corner in cb.corners():
++                        box.expand(corner * c2node)
++                walk(c, c2node)
++        walk(node, MMatrix())
++        return box
+diff --git a/tests/test_maya_scene_module.py b/tests/test_maya_scene_module.py
+new file mode 100644
+index 0000000..24859b9
+--- /dev/null
++++ b/tests/test_maya_scene_module.py
+@@ -0,0 +1,241 @@
++"""Regression tests for maya_scene_module running on the maya stub.
++
++Each test pins a P0/P1 fix from the grill handoff (rui.txt). The stub's
++matrix/bbox math is verified independently in test_maya_stub.py, so
++failures here mean the production module is wrong — not the harness.
++"""
++
++from __future__ import annotations
++
++import json
++import math
++
++import pytest
++
++
++# ------------------------------------------------------------
++# P0-4: world bbox must use all 8 corners (measure + conflicts)
++# ------------------------------------------------------------
++
++class TestWorldBbox:
++    def test_measure_bbox_mode_rotated_object(self, maya_env):
++        # Corner-at-origin 2x1x1 box rotated 45 deg about Y.
++        # True world extents: x in [0, 2.121], z in [-1.414, 0.707].
++        maya_env.scene.add_mesh(
++            "GEO_rot", bbox_min=(0, 0, 0), bbox_max=(2, 1, 1), r=(0, 45, 0)
++        )
++        # Wall slab separated on +Z: z in [0.8, 1.0], x overlaps, y overlaps
++        maya_env.scene.add_mesh(
++            "GEO_wall", bbox_min=(0, 0, 0), bbox_max=(2, 1, 0.2),
++            t=(0, 0, 0.8),
++        )
++        m = maya_env.module.measure("GEO_rot", "GEO_wall", "bbox")
++        gaps = m["details"]["gaps_xyz"]
++        # True z gap = 0.8 - 0.707 = ~0.093; naive min*M gives gap 0.8
++        assert gaps[2] == pytest.approx(0.8 - math.sqrt(2) / 2, abs=1e-2)
++        assert m["bbox_overlap"] is False
++
++    def test_measure_center_mode(self, maya_env):
++        maya_env.scene.add_mesh("GEO_a", t=(10, 0, 0))
++        maya_env.scene.add_mesh("GEO_b", t=(0, 0, 30))
++        m = maya_env.module.measure("GEO_a", "GEO_b", "center")
++        assert m["distance"] == pytest.approx(math.sqrt(100 + 900), abs=1e-3)
++
++    def test_conflicts_uses_world_bbox(self, maya_env):
++        # Rotated box: true world z range [-1.414, 0.707].
++        maya_env.scene.add_mesh(
++            "GEO_rot", bbox_min=(0, 0, 0), bbox_max=(2, 1, 1), r=(0, 45, 0)
++        )
++        # Wall whose CENTER (z=-1.25) is inside the rotated box's true bbox
++        # but OUTSIDE the naive translate-only bbox (z in [0, 1]).
++        maya_env.scene.add_mesh(
++            "GEO_wall", bbox_min=(-1, -0.5, -0.1), bbox_max=(1, 0.5, 0.1),
++            t=(1, 0.5, -1.25),
++        )
++        res = maya_env.module.scene_review(["conflicts"])
++        conflicts = res["checks"]["conflicts"]
++        assert conflicts["count"] >= 1, (
++            "rotated-object penetration must be detected via world bbox"
++        )
++
++
++# ------------------------------------------------------------
++# P1: scene_assert exists:false + bbox_min
++# ------------------------------------------------------------
++
++class TestSceneAssert:
++    def test_exists_false_missing_object_passes(self, maya_env):
++        res = maya_env.module.assert_scene_state(
++            json.dumps({"ghost_obj": {"exists": False}})
++        )
++        assert res["passed"] is True
++        assert res["passed_count"] == 1
++
++    def test_exists_false_present_object_fails(self, maya_env):
++        maya_env.scene.add_mesh("GEO_box")
++        res = maya_env.module.assert_scene_state(
++            json.dumps({"GEO_box": {"exists": False}})
++        )
++        assert res["passed"] is False
++        assert any(mm["property"] == "existence" for mm in res["mismatches"])
++
++    def test_exists_true_present_passes(self, maya_env):
++        maya_env.scene.add_mesh("GEO_box")
++        res = maya_env.module.assert_scene_state(
++            json.dumps({"GEO_box": {"exists": True}})
++        )
++        assert res["passed"] is True
++
++    def test_exists_true_missing_fails(self, maya_env):
++        res = maya_env.module.assert_scene_state(
++            json.dumps({"ghost": {"exists": True}})
++        )
++        assert res["passed"] is False
++
++    def test_bbox_min_checked(self, maya_env):
++        maya_env.scene.add_mesh(
++            "GEO_box", bbox_min=(-50, -50, -50), bbox_max=(50, 50, 50)
++        )
++        res = maya_env.module.assert_scene_state(
++            json.dumps({"GEO_box": {"bbox_min": [-50, -50, -50]}})
++        )
++        assert res["passed"] is True
++        res2 = maya_env.module.assert_scene_state(
++            json.dumps({"GEO_box": {"bbox_min": [0, 0, 0]}})
++        )
++        assert res2["passed"] is False
++        assert any(mm["property"] == "bbox_min" for mm in res2["mismatches"])
++
++    def test_position_check(self, maya_env):
++        maya_env.scene.add_mesh("GEO_box", t=(10, 0, 5))
++        res = maya_env.module.assert_scene_state(
++            json.dumps({"GEO_box": {"position": [10, 0, 5]}})
++        )
++        assert res["passed"] is True
++
++
++# ------------------------------------------------------------
++# P0-5: check_constraints must catch penetration + disclose sampling
++# ------------------------------------------------------------
++
++class TestConstraints:
++    def test_min_clearance_detects_penetration(self, maya_env):
++        # Two overlapping boxes: clearance distance is NEGATIVE.
++        maya_env.scene.add_mesh(
++            "GEO_a", bbox_min=(-50, -50, -50), bbox_max=(50, 50, 50)
++        )
++        maya_env.scene.add_mesh(
++            "GEO_b", bbox_min=(-50, -50, -50), bbox_max=(50, 50, 50),
++            t=(20, 0, 0),
++        )
++        res = maya_env.module.check_constraints(
++            [{"type": "min_clearance", "value": 10}]
++        )
++        assert res["passed"] is False, (
++            "penetrating objects (negative clearance) must violate min_clearance"
++        )
++        assert any(v["type"] == "min_clearance" for v in res["violations"])
++
++    def test_min_clearance_ok_when_separated(self, maya_env):
++        maya_env.scene.add_mesh("GEO_a", t=(0, 0, 0))
++        maya_env.scene.add_mesh("GEO_b", t=(1000, 0, 0))
++        res = maya_env.module.check_constraints(
++            [{"type": "min_clearance", "value": 10}]
++        )
++        assert res["passed"] is True
++
++    def test_sampling_disclosed(self, maya_env):
++        # 30 transforms -> pair window (i+20) truncates some pairs
++        for i in range(30):
++            maya_env.scene.add_mesh(f"GEO_obj{i:02d}", t=(i * 500, 0, 0))
++        res = maya_env.module.check_constraints(
++            [{"type": "no_overlap"}]
++        )
++        assert "skipped" in res or "sampling" in res, (
++            "truncated pair-scan must disclose how much was skipped"
++        )
++
++
++# ------------------------------------------------------------
++# Zone coverage (total_objects) + sampling disclosure in review
++# ------------------------------------------------------------
++
++class TestZoneCoverage:
++    def test_coverage_not_negative(self, maya_env):
++        # 3 zoned objects + 5 unassigned => coverage 3/8 = 0.375
++        maya_env.scene.add_mesh("GEO_door_a")      # entrance pattern
++        maya_env.scene.add_mesh("GEO_shelf_a")    # display pattern
++        maya_env.scene.add_mesh("GEO_wall_a")     # shell pattern
++        for i in range(5):
++            maya_env.scene.add_mesh(f"random_{i}")
++        res = maya_env.module.scene_plan()
++        coverage = res["zone_analysis"]["coverage"]
++        assert coverage == pytest.approx(0.375, abs=1e-3), (
++            "coverage must be unassigned/total, not unassigned/1"
++        )
++
++    def test_get_zone_map_reports_total(self, maya_env):
++        maya_env.scene.add_mesh("GEO_door_a")
++        maya_env.scene.add_mesh("random_1")
++        zd = maya_env.module.get_zone_map()
++        assert zd["total_objects"] == 2
++        assert zd["unassigned_count"] == 1
++
++
++class TestSamplingDisclosure:
++    def test_overlaps_checked_skipped(self, maya_env):
++        for i in range(90):  # over the 80-object sample cap
++            maya_env.scene.add_mesh(f"GEO_obj{i:02d}", t=(i * 1000, 0, 0))
++        res = maya_env.module.scene_review(["overlaps"])
++        check = res["checks"]["overlaps"]
++        assert check["checked"] == 80
++        assert check["skipped"] == 10
++
++    def test_overlaps_no_skip_under_cap(self, maya_env):
++        for i in range(3):
++            maya_env.scene.add_mesh(f"GEO_obj{i}", t=(i * 1000, 0, 0))
++        res = maya_env.module.scene_review(["overlaps"])
++        assert res["checks"]["overlaps"]["skipped"] == 0
++
++    def test_conflicts_checked_skipped(self, maya_env):
++        for i in range(70):  # over the 60-object cap
++            maya_env.scene.add_mesh(f"GEO_obj{i:02d}", t=(i * 1000, 0, 0))
++        res = maya_env.module.scene_review(["conflicts"])
++        check = res["checks"]["conflicts"]
++        assert check["checked"] == 60
++        assert check["skipped"] == 10
++
++    def test_aesthetics_sampling(self, maya_env):
++        for i in range(210):  # over the 200-object cap
++            maya_env.scene.add_mesh(f"GEO_obj{i:03d}", t=(i * 1000, 0, 0))
++        res = maya_env.module.analyze_aesthetics()
++        assert "sampling" in res
++        assert res["sampling"]["skipped"] == 10
++
++
++# ------------------------------------------------------------
++# P0-6: camera_orbit must constrain to a center locator
++# ------------------------------------------------------------
++
++class TestOrbitCamera:
++    def test_orbit_creates_center_locator_and_constraint(self, maya_env):
++        res = maya_env.module.create_orbit_camera(
++            [10, 5, 0], radius=100, frames=120, name="CAM_orbit"
++        )
++        assert "error" not in res
++        # A locator must exist near the requested center
++        loc = maya_env.scene.resolve(res["center_locator"])
++        assert loc.name.startswith(("LOC_", "CAM_orbit"))
++        wx, wy, wz = maya_env.scene.world_position(loc)
++        assert (wx, wy, wz) == pytest.approx((10, 5, 0))
++        # An aim constraint targeting that locator must exist
++        assert maya_env.scene.constraints, "aim constraint never created"
++        assert maya_env.scene.constraints[-1]["target"] == loc.name
++
++    def test_orbit_keyframes_set(self, maya_env):
++        res = maya_env.module.create_orbit_camera(
++            [0, 0, 0], radius=50, frames=60, name="CAM_orb2"
++        )
++        cam = maya_env.scene.resolve(res["camera"])
++        assert cam.name == "CAM_orb2"
++        assert len(maya_env.scene.keyed) >= 3
+diff --git a/tests/test_maya_stub.py b/tests/test_maya_stub.py
+new file mode 100644
+index 0000000..755d7c3
+--- /dev/null
++++ b/tests/test_maya_stub.py
+@@ -0,0 +1,166 @@
++"""Self-tests for tests/maya_stub — the harness must be right
++before product tests can be trusted (D-004/ADR-0002 stub tier)."""
++
++from __future__ import annotations
++
++import math
++
++import maya_stub
++import pytest
++from maya_stub.math3d import MBoundingBox, MPoint, euler_from_matrix, trs_matrix
++
++
++@pytest.fixture
++def scene():
++    sc = maya_stub.install()
++    yield sc
++    maya_stub.uninstall()
++
++
++class TestMatrixMath:
++    def test_translation(self):
++        m = trs_matrix(t=(5, 2, -3))
++        p = MPoint(1, 1, 1) * m
++        assert (p.x, p.y, p.z) == (6, 3, -2)
++
++    def test_rotate_y_90(self):
++        # row-vector: +90 deg about Y maps +X -> -Z
++        m = trs_matrix(r=(0, 90, 0))
++        p = MPoint(1, 0, 0) * m
++        assert p.x == pytest.approx(0, abs=1e-9)
++        assert p.z == pytest.approx(-1, abs=1e-9)
++
++    def test_scale_then_translate(self):
++        m = trs_matrix(t=(10, 0, 0), s=(2, 2, 2))
++        p = MPoint(1, 0, 0) * m
++        assert p.x == pytest.approx(12)
++
++    def test_euler_roundtrip_compound(self):
++        m = trs_matrix(r=(30, -45, 60))
++        rx, ry, rz = euler_from_matrix(m)
++        assert rx == pytest.approx(30, abs=1e-6)
++        assert ry == pytest.approx(-45, abs=1e-6)
++        assert rz == pytest.approx(60, abs=1e-6)
++
++    def test_matrix_mul_is_composable(self):
++        a = trs_matrix(t=(1, 0, 0))
++        b = trs_matrix(t=(0, 5, 0))
++        p = MPoint(0, 0, 0) * (a * b)
++        assert (p.x, p.y, p.z) == (1, 5, 0)
++
++
++class TestSceneGraph:
++    def test_hierarchy_world_position(self, scene):
++        g = scene.add_transform("GRP_a", t=(10, 0, 0))
++        m = scene.add_mesh("GEO_box", t=(0, 0, 5), parent=g)
++        assert scene.world_position(m) == (10, 0, 5)
++
++    def test_long_name_and_resolve(self, scene):
++        g = scene.add_transform("GRP_a")
++        m = scene.add_mesh("GEO_box", parent=g)
++        assert scene.long_name(m) == "|GRP_a|GEO_box"
++        assert scene.resolve("|GRP_a|GEO_box") is m
++        assert scene.resolve("GEO_box") is m
++
++    def test_resolve_missing_raises(self, scene):
++        with pytest.raises(RuntimeError):
++            scene.resolve("nope")
++
++    def test_duplicate_names_auto_uniquified(self, scene):
++        # Maya-style: creating a second node with the same name gets numbered
++        scene.add_mesh("GEO_same")
++        scene.add_mesh("GEO_same")
++        assert scene.resolve("GEO_same1") is not None
++
++    def test_ambiguous_short_name_raises(self, scene):
++        # Same short name under different parents is legal in Maya
++        g1 = scene.add_transform("GRP_a")
++        g2 = scene.add_transform("GRP_b")
++        scene.add_node("dup", "transform", parent=g1, exists_ok=True)
++        scene.add_node("dup", "transform", parent=g2, exists_ok=True)
++        with pytest.raises(RuntimeError):
++            scene.resolve("dup")
++        # long names disambiguate
++        assert scene.resolve("|GRP_a|dup").parent is g1
++
++    def test_world_bbox_rotated_8_corners(self, scene):
++        # 2x1x1 box rotated 45 deg about Y: world XZ extent = 3*sqrt(2)/2
++        box = scene.add_mesh("GEO_rot", bbox_min=(-1, -0.5, -0.5),
++                             bbox_max=(1, 0.5, 0.5), r=(0, 45, 0))
++        wb = scene.object_bbox(box)  # local space bbox
++        wm = scene.inclusive_matrix(box)
++        out = MBoundingBox()
++        for c in wb.corners():
++            out.expand(c * wm)
++        ext = 3 * math.sqrt(2) / 2  # (|x|+|z|) extents of a 2x1 box at 45deg
++        assert (out.max.x - out.min.x) == pytest.approx(ext, abs=1e-9)
++        assert (out.max.z - out.min.z) == pytest.approx(ext, abs=1e-9)
++        assert (out.max.y - out.min.y) == pytest.approx(1.0)
++
++    def test_naive_minmax_transform_is_wrong(self, scene):
++        # Corner-at-origin box rotated 45 deg: min*M/max*M shortcut gives a
++        # DIFFERENT (wrong) world AABB than the 8-corner transform.
++        box = scene.add_mesh("GEO_off", bbox_min=(0, 0, 0),
++                             bbox_max=(2, 1, 1), r=(0, 45, 0))
++        wb = scene.object_bbox(box)
++        wm = scene.inclusive_matrix(box)
++        out = MBoundingBox()
++        for c in wb.corners():
++            out.expand(c * wm)
++        naive_min = wb.min * wm
++        naive_max = wb.max * wm
++        # 8-corner truth: x in [0, 3*sqrt(2)/2], z in [-sqrt(2), sqrt(2)/2]
++        assert out.min.x == pytest.approx(0.0, abs=1e-9)
++        assert out.max.x == pytest.approx(3 * math.sqrt(2) / 2, abs=1e-9)
++        assert out.min.z == pytest.approx(-math.sqrt(2), abs=1e-9)
++        assert out.max.z == pytest.approx(math.sqrt(2) / 2, abs=1e-9)
++        # naive min*M/max*M reports z=[0, -0.707] — both bounds wrong
++        assert not math.isclose(naive_min.z, out.min.z, abs_tol=1e-6)
++        assert not math.isclose(naive_max.z, out.max.z, abs_tol=1e-6)
++
++
++class TestCmdsFacade:
++    def test_ls_type_long(self, scene):
++        import sys
++        cmds = sys.modules["maya.cmds"]
++        scene.add_mesh("GEO_a")
++        trs = cmds.ls(type="transform", long=True)
++        assert "|GEO_a" in trs
++        meshes = cmds.ls(type="mesh")
++        assert "GEO_aShape" in meshes
++
++    def test_ls_empty_returns_none(self, scene):
++        cmds = __import__("maya.cmds", fromlist=["x"])
++        assert cmds.ls(type="transform") is None
++
++    def test_getattr_tuple(self, scene):
++        cmds = __import__("maya.cmds", fromlist=["x"])
++        scene.add_light("LGT_key", ltype="spotLight")
++        assert cmds.getAttr("LGT_keyShape.intensity") == 1.0
++        assert cmds.getAttr("LGT_keyShape.color") == [(1.0, 1.0, 1.0)]
++        assert cmds.objExists("LGT_keyShape.coneAngle")
++        assert not cmds.objExists("LGT_keyShape.bogusAttr")
++
++    def test_camera_and_aim(self, scene):
++        cmds = __import__("maya.cmds", fromlist=["x"])
++        target = scene.add_mesh("GEO_t", t=(100, 0, 0))
++        cam_t, cam_s = cmds.camera(name="CAM_x")
++        cmds.move(0, 0, 0, cam_t)
++        cmds.aimConstraint(target.name, cam_t, aimVector=[0, 0, -1])
++        node = scene.resolve(cam_t)
++        # camera looks down -Z; aiming at +X target => ry = -90
++        assert node.r[1] == pytest.approx(-90, abs=1e-6)
++        assert scene.constraints[-1]["target"] == "GEO_t"
++
++    def test_xform_world_space(self, scene):
++        cmds = __import__("maya.cmds", fromlist=["x"])
++        g = scene.add_transform("GRP_p", t=(5, 0, 0))
++        scene.add_mesh("GEO_c", t=(0, 0, 7), parent=g)
++        assert cmds.xform("GEO_c", q=True, ws=True, t=True) == [5, 0, 7]
++
++    def test_rename_uniquifies(self, scene):
++        cmds = __import__("maya.cmds", fromlist=["x"])
++        scene.add_mesh("GEO_a")
++        scene.add_mesh("GEO_b")
++        out = cmds.rename("GEO_b", "GEO_a")
++        assert out == "GEO_a1"
+diff --git a/tests/test_scene_tools_json.py b/tests/test_scene_tools_json.py
+new file mode 100644
+index 0000000..84271df
+--- /dev/null
++++ b/tests/test_scene_tools_json.py
+@@ -0,0 +1,235 @@
++"""T-02 regression tests: tool-layer JSON serialization + error passthrough.
++
++The ExecClient executes the code scene_tools generates against the stub-bound
++_mcp_scene module using the REAL helper result-capture transform — so these
++tests exercise the full chain: arg serialization -> generated code ->
++Maya-side module -> returned dict.
++"""
++
++from __future__ import annotations
++
++import ast
++import json
++import sys
++from types import SimpleNamespace
++from unittest.mock import AsyncMock, MagicMock
++
++import pytest
++
++from maya_mcp_server.maya_mcp_helper import prepare_code_for_result_capture
++from maya_mcp_server.scene_tools import (
++    _caches,
++    _injected_sessions,
++    register_scene_tools,
++)
++from maya_mcp_server.types import CommandResponse, OutputBuffer, ResultType
++
++
++class ExecClient:
++    """Fake client: runs generated code on the stub scene module."""
++
++    def __init__(self, module):
++        self.module = module
++        self.calls = []
++
++    async def execute_code(self, code, result_type=ResultType.NONE):
++        self.calls.append(code)
++        rt = getattr(result_type, "value", result_type)
++        ctx = {"__builtins__": __builtins__, "_mcp_scene": self.module}
++        if rt == "NONE":
++            exec(compile(code, "<mcp>", "exec"), ctx)
++            return CommandResponse(result=None, error=None)
++        modified, was = prepare_code_for_result_capture(code)
++        if not was:
++            raise RuntimeError(f"result not capturable: {code}")
++        ctx["_mcp_result"] = None
++        exec(compile(modified, "<mcp>", "exec"), ctx)
++        return CommandResponse(result=ctx["_mcp_result"], error=None)
++
++    async def get_buffered_output(self):
++        return OutputBuffer()
++
++    def append_output(self, stdout, stderr):
++        pass
++
++    async def write_module(self, name, code, overwrite=False):
++        return name
++
++
++class ErrorClient(ExecClient):
++    """Client whose Maya side raises — error must propagate, not vanish."""
++
++    async def execute_code(self, code, result_type=ResultType.NONE):
++        self.calls.append(code)
++        return CommandResponse(
++            result=None,
++            error={
++                "type": "builtins.RuntimeError",
++                "message": "kaboom in maya",
++                "traceback": "Traceback...\nRuntimeError: kaboom in maya",
++            },
++        )
++
++
++@pytest.fixture
++def tools(maya_env, monkeypatch):
++    sys.modules["_mcp_scene"] = maya_env.module
++    _injected_sessions.add("_default")
++    _caches.clear()
++    client = ExecClient(maya_env.module)
++    manager = MagicMock()
++    manager.get_client = AsyncMock(return_value=client)
++    monkeypatch.setattr(
++        "maya_mcp_server.server.get_session_manager", lambda: manager
++    )
++    mock_mcp = MagicMock()
++    fns = {}
++
++    def capture(fn):
++        fns[fn.__name__] = fn
++        return fn
++
++    mock_mcp.tool = capture
++    register_scene_tools(mock_mcp)
++    yield SimpleNamespace(
++        fns=fns, client=client, manager=manager, env=maya_env
++    )
++    _injected_sessions.discard("_default")
++    _caches.clear()
++    sys.modules.pop("_mcp_scene", None)
++
++
++# ------------------------------------------------------------
++# JSON-serialized arguments (P0-2: injection surface removal)
++# ------------------------------------------------------------
++
++class TestJsonArgSerialization:
++    async def test_validate_rules_via_json(self, tools):
++        tools.env.scene.add_mesh("GEO_a")
++        out = await tools.fns["scene_validate"](
++            rules=json.dumps([{"type": "max_objects", "value": 100}]),
++            format="json",
++        )
++        res = json.loads(out)
++        assert res["passed"] is True
++        code = tools.client.calls[-1]
++        assert "json.loads" in code, "rules must go through JSON"
++        assert "rules_escaped" not in code
++        ast.parse(code)  # generated code must always be valid python
++
++    async def test_validate_rejects_bad_json(self, tools):
++        from maya_mcp_server.security import InputValidationError
++
++        with pytest.raises(InputValidationError):
++            await tools.fns["scene_validate"](rules="not json {{{")
++
++    async def test_injection_in_measure_args_is_inert(self, tools):
++        tools.env.scene.add_mesh("GEO_a", t=(5, 0, 0))
++        evil = "x'); import os; os.system('echo PWNED') #"
++        out = await tools.fns["scene_measure"](
++            obj_a=evil, obj_b="GEO_a", mode="center", format="json"
++        )
++        res = json.loads(out)
++        # the hostile string arrived as DATA (object doesn't exist -> error)
++        assert res["obj_a"] == evil
++        assert "error" in res
++
++    async def test_quotes_in_checkpoint_name_verbatim(self, tools):
++        seen = {}
++
++        def spy(name):
++            seen["name"] = name
++            return {"ok": True, "name": name}
++
++        tools.env.module.save_checkpoint = spy
++        name = 'cp "quoted" \\ ; import os'
++        await tools.fns["scene_checkpoint"](name=name)
++        assert seen["name"] == name
++
++    async def test_rollback_filename_verbatim(self, tools):
++        seen = {}
++
++        def spy(fn):
++            seen["fn"] = fn
++            return {"success": True, "rolled_back_to": fn}
++
++        tools.env.module.rollback_to_checkpoint = spy
++        fn = 'cp_20250101_x"); pass #.ma'
++        await tools.fns["scene_rollback"](filename=fn)
++        assert seen["fn"] == fn
++
++    async def test_scene_assert_expectations_json(self, tools):
++        tools.env.scene.add_mesh("GEO_box", t=(1, 2, 3))
++        expectations = json.dumps({"GEO_box": {"position": [1, 2, 3]}})
++        out = await tools.fns["scene_assert"](
++            expectations=expectations, format="json"
++        )
++        res = json.loads(out)
++        assert res["passed"] is True
++
++    async def test_scene_inspect_target_serialized(self, tools):
++        tools.env.scene.add_mesh("GEO_a")
++        out = await tools.fns["scene_inspect"](target="GEO_a", format="json")
++        res = json.loads(out)
++        assert res["object"]["name"] == "GEO_a"
++        code = tools.client.calls[-1]
++        ast.parse(code)
++
++    async def test_camera_orbit_center_json(self, tools):
++        out = await tools.fns["camera_orbit"](
++            center="[10, 5, 0]", radius=100, frames=24, name="CAM_orb"
++        )
++        res = json.loads(out)
++        assert "error" not in res
++        assert res["center"] == [10, 5, 0]
++
++
++# ------------------------------------------------------------
++# Error passthrough (P0-1: result.error must not be dropped)
++# ------------------------------------------------------------
++
++class TestErrorPassthrough:
++    async def test_scene_tool_raises_on_maya_error(self, tools, monkeypatch):
++        err_client = ErrorClient(tools.env.module)
++        tools.manager.get_client = AsyncMock(return_value=err_client)
++        from maya_mcp_server.client import MayaExecutionError
++
++        with pytest.raises(MayaExecutionError, match="kaboom"):
++            await tools.fns["scene_snapshot"](format="json")
++
++    async def test_server_execute_code_raises_on_error(self, monkeypatch):
++        from maya_mcp_server import server
++        from maya_mcp_server.client import MayaExecutionError
++
++        client = AsyncMock()
++        client.execute_code.return_value = CommandResponse(
++            result=None,
++            error={
++                "type": "builtins.ValueError",
++                "message": "bad thing happened",
++                "traceback": "tb",
++            },
++        )
++        client.get_buffered_output.return_value = OutputBuffer()
++        client.append_output = MagicMock()
++        manager = MagicMock()
++        manager.get_client = AsyncMock(return_value=client)
++        monkeypatch.setattr(server, "get_session_manager", lambda: manager)
++
++        with pytest.raises(MayaExecutionError, match="bad thing happened"):
++            await server.execute_code.fn(code="1+1", result_type="JSON")
++
++    async def test_server_execute_code_ok(self, monkeypatch):
++        from maya_mcp_server import server
++
++        client = AsyncMock()
++        client.execute_code.return_value = CommandResponse(
++            result={"ok": 1}, error=None
++        )
++        client.get_buffered_output.return_value = OutputBuffer()
++        manager = MagicMock()
++        manager.get_client = AsyncMock(return_value=client)
++        monkeypatch.setattr(server, "get_session_manager", lambda: manager)
++
++        out = await server.execute_code.fn(code='{"a":1}', result_type="JSON")
++        assert out == {"ok": 1}
