@@ -1,0 +1,20 @@
+# Decision Ledger — maya-mcp-grill
+
+> Grill session for maya-mcp-server plan sharpening.
+> Entries appended only after user confirmation.
+
+| ID | 原问题 | 我的原回答原文 | 规范化需求 | 显式约束/负向需求 | 状态 |
+|----|--------|----------------|------------|-------------------|------|
+| D-001 | Q1 项目的交付对象是谁？(A自用/B公开发布/C团队内部) | B | 按公开发布定位推进：GitHub+PyPI 路线，对标 blender-mcp 发布纪律 | LICENSE、PyPI 命名冲突、README 数字一致、真实威胁模型声明均为发布阻断项；不接受仅自用降级 | current |
+| D-002 | Q2 首发版本 scope：只修对齐，还是补齐视觉闭环？ | 短期内我偏向B，但是长期我偏向C | 首发范围=修复对齐+视觉闭环(viewport capture)；长期路线图纳入资产生态链集成 | 视觉闭环排在P0正确性修复之后；资产生态仅长期方向、非首发内容 | current |
+| D-003 | Q3 是否采纳调研对首发/长期scope的三项细化？ | 全部采纳 | (a)视觉闭环拆为 scene_viewport_snapshot(高频便宜)+scene_render_preview(低分辨按需)两工具；(b)资产生态=薄集成切片，第一片仅 Poly Haven 且接入 scene_plan(zone语义+bbox尺寸推荐)，Sketchfab/AI生成暂缓，不做自建资产库；(c)首发新增 README 对比叙事+execute_code 威胁模型文档+尽早占住 PyPI 包名 | security.py 卖点叙事须在 P0-2 注入面修复之后；不做自建资产库/爬虫 | current |
+| D-004 | Q4 maya_scene_module.py(3564行)改造策略：先修后拆/先拆后修/绞杀者？ | C | 绞杀者模式：先建 Maya 端测试脚手架(cmds/OpenMaya stub)，每个 P0 修复带回归测试落地，子模块拆分随修复触及区域增量进行 | 不做无测试大拆分(B否决)；不允许无回归网继续改单体(A否决) | current |
+| D-005 | Q5 Maya端测试脚手架形态：stub层/纯函数抽取/mayapy真机CI/混合？ | D（对了，你没猜错） | 混合方案：自建 maya.cmds+OpenMaya stub 层跑 CI（覆盖 orchestration 路径），可选 mayapy 真机档本地手动跑（文档化、不卡 CI）；已确认 aesthetic_engine.py 为纯 Python 可零成本进 CI | stub 数学需语义正确（尤其8角点bbox）防假绿；真机档仅本地手动 | current |
+| D-006 | Q6 审美引擎双实现归并方向？(A删引擎留Maya端/B引擎为唯一真源注入Maya/C双实现+parity测试) | ok（配额耗尽后选择不等调研、采纳推荐B） | aesthetic_engine.py 为唯一真源，经 write_module 注入 Maya；_mcp_scene 审美函数改为 采集场景数据→调用注入引擎→格式化输出；顺带对齐 analyze_aesthetics 与 scene_review 的灯光/物体采集字段契约 | 不再维持双实现；注入走已有 >15K temp-file 通道；atomcode 联网调研因配额未完成，本决策仅基于仓库实证 | current |
+| D-007 | Q7 checkpoint/rollback语义目标与rollback命名语义？ | ok（采纳推荐A+S2） | checkpoint 改 cmds.file(exportAll) 真快照+basename白名单^[A-Za-z0-9_-]+$落checkpoints/目录；rollback=S2：打开cp+改名回原路径，但前置 exportAll 的 auto_before_rollback+结构化返回 scene_name_before/after/original_file_status/scene_rebound_to；不变式=任何覆盖路径名操作前被覆盖内容必有内存态快照；文档写明两诚实边界（快照不含undo历史→回滚后须scene_snapshot重建认知；references默认展平、不管引用回写） | 不做诚实降级B；undo栈C排除(open/new冲队列)；不做静默覆盖；须落“带reference edit的checkpoint→rollback往返”mayapy回归用例 | current |
+| D-008 | Q8 安全姿态：统一管线+诚实威胁模型/+AST白名单/只修转义？ | 采纳（A+B后置） | 18工具收口统一校验+限流+审计+pattern扫描（随JSON传参修复同次重构）；威胁模型文档按调研8项清单写（显式威胁模型/README警示框/边界声明禁用sandbox-secure词/防线清单/端口暴露说明/危险工具annotations/SECURITY.md/审计日志schema）；AST safe_mode 记路线图P2 opt-in（若做照zorak1103模板：默认关+响应带mode字段+明写safety-net-not-boundary） | 不承诺遏制恶意client；C只修转义否决；safe_mode不得写成安全边界；首发不含safe_mode | current |
+| D-009 | Q9 质量门与CI基线策略？ | A+C 组合 | ruff 全仓库错误数预算冻结+ratchet只降不升；mypy strict 对新文件强制、maya_scene_module.py 暂放宽且拆分完成后收strict；pytest 全绿+P0修复必带回归测试；GitHub Actions(ruff+mypy+pytest)+pre-commit | 不做首日全绿(B否决)；存量债随绞杀者拆分还 | current |
+| D-010 | Q10 发布身份：包名/LICENSE/上游署名？ | `mcp-for-maya` + 仓库同步改名 | PyPI包名=mcp-for-maya（已验证空闲）；GitHub仓库改名与包名一致；LICENSE=MIT含上游chadrik版权声明+自有copyright line；pyproject URLs改指本仓库；README明示fork关系 | 必须保留上游MIT notice（法律义务）；不用maya-mcp-server-enhanced作产品名；maya-mcp已被占 | current |
+| D-011 | Q11 scene_review拆分时是否做可扩展验证器注册表？ | 采纳（C收窄版） | 拆分时每check自注册（name/severity/family/order元数据）；注册API限register(name,fn,severity,family)且与会话/缓存/回滚内部状态隔离；单check异常记check_error不中断整轮；自定义注入走write_module+注册API；文档口径=受信agent扩展机制（逃生舱）；entry-point自动发现后置 | 不做全量Pyblish插件系统(B否决)；README不得暗示沙箱/插件生态；注入通道非发布卖点 | current |
+| D-012 | Q12 Maya/Python版本支持范围？ | A | 官方支持 Maya 2024+（py3.10+），与宿主 requires-python>=3.10 对齐；测试矩阵 2024/2025/2026；README 写明 2023及以下不阻止不担保 | 不做 py3.7 降级宽支持(B否决)；不允许不声明(C否决) | current |
+| D-013 | Q13 连接层架构：双通道对等/Qt为主/收敛native？ | 采纳（B+执行细则） | Qt 为主工作通道：重写为 readyRead 事件驱动+逐连接命令队列+长度前缀分帧（8-16MiB帧上限）+typed error(MayaUnavailableError/TimeoutError)+指数退避(0.5/1/2s)+localhost-only强制+健康探针+_failed_ports去重；native 降级为 bootstrap/发现+headless(mayapy无Qt事件循环) 最小通道并文档化不承诺大载荷；GUI 会话上 temp-file 注入随分帧协议移除，headless 回退保留 temp-file/分块send；修 add_session 丢弃 bootstrap 返回值 bug | 无双通道对等(A否决)；不收敛 native 单通道(C否决)；temp-file 移除仅 GUI 会话成立 | current |
