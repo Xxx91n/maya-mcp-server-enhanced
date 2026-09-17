@@ -5,29 +5,25 @@ from __future__ import annotations
 import ast
 import json
 import sys
+import time
 import traceback
+from collections import deque
 from typing import Any
 
 
 # Try importing Qt from PySide2 (Maya 2022-2023) or PySide6 (Maya 2024+)
 try:
-    from PySide2.QtCore import QIODevice, QTimer  # type: ignore[import-not-found]
     from PySide2.QtNetwork import (  # type: ignore[import-not-found]
         QHostAddress,
         QTcpServer,
-        QTcpSocket,
     )
 except ImportError:
     try:
-        from PySide6.QtCore import QIODevice, QTimer
-        from PySide6.QtNetwork import QHostAddress, QTcpServer, QTcpSocket
+        from PySide6.QtNetwork import QHostAddress, QTcpServer
     except ImportError:
         # Qt not available - Qt server functions will fail gracefully
         QTcpServer = None
-        QTcpSocket = None
         QHostAddress = None
-        QTimer = None
-        QIODevice = None
 
 CAPTURE_VARIABLE = "_mcp_result"
 
@@ -88,6 +84,65 @@ def prepare_code_for_result_capture(
     return before + new_stmt, True
 
 
+# ---------------------------------------------------------------------------
+# Length-prefixed wire framing (D-013 / ADR-0010)
+#
+# The Qt channel uses uint32-BE length-prefixed frames instead of
+# line-delimited JSON so multi-MB module sources and result payloads survive
+# partial reads and coalesced writes. Cap: 16 MiB per frame.
+# ---------------------------------------------------------------------------
+
+FRAME_HEADER_SIZE = 4
+MAX_FRAME_SIZE = 16 * 1024 * 1024  # 16 MiB (D-013 band: 8-16 MiB)
+
+
+class FrameTooLargeError(Exception):
+    """A declared frame length exceeds the negotiated cap."""
+
+    def __init__(self, declared: int, max_size: int) -> None:
+        self.declared = declared
+        self.max_size = max_size
+        super().__init__(
+            f"declared frame length {declared} exceeds cap {max_size}"
+        )
+
+
+def encode_frame(payload: bytes) -> bytes:
+    """Encode one length-prefixed frame (raises FrameTooLargeError over cap)."""
+
+    if len(payload) > MAX_FRAME_SIZE:
+        raise FrameTooLargeError(len(payload), MAX_FRAME_SIZE)
+    return len(payload).to_bytes(FRAME_HEADER_SIZE, "big") + payload
+
+
+class FrameDecoder:
+    """Incremental decoder for the length-prefixed protocol.
+
+    feed() accepts arbitrary byte chunks (partial headers, split payloads,
+    coalesced frames) and returns complete frame payloads in order.
+    """
+
+    def __init__(self, max_frame_size: int = MAX_FRAME_SIZE) -> None:
+        self.max_frame_size = max_frame_size
+        self._buf = bytearray()
+
+    def feed(self, data: bytes) -> list[bytes]:
+        self._buf += data
+        frames = []
+        while len(self._buf) >= FRAME_HEADER_SIZE:
+            n = int.from_bytes(self._buf[:FRAME_HEADER_SIZE], "big")
+            if n > self.max_frame_size:
+                del self._buf[:FRAME_HEADER_SIZE]
+                raise FrameTooLargeError(n, self.max_frame_size)
+            if len(self._buf) < FRAME_HEADER_SIZE + n:
+                break
+            frames.append(
+                bytes(self._buf[FRAME_HEADER_SIZE:FRAME_HEADER_SIZE + n])
+            )
+            del self._buf[:FRAME_HEADER_SIZE + n]
+        return frames
+
+
 class StreamWriter:
     """Custom writer that captures output for MCP Resource streaming."""
 
@@ -95,10 +150,18 @@ class StreamWriter:
         self.stream_type = stream_type
         self._wrapped = original
         self._buffer: list[str] = []
+        self._size = 0
 
     def write(self, text: str) -> None:
         if text:
             self._buffer.append(text)
+            self._size += len(text)
+            # Bound the capture buffer: drop oldest chunks past the cap.
+            while self._size > _MAX_STREAM_BUFFER_SIZE and len(self._buffer) > 1:
+                self._size -= len(self._buffer.pop(0))
+            if self._size > _MAX_STREAM_BUFFER_SIZE:
+                self._buffer[-1] = self._buffer[-1][-_MAX_STREAM_BUFFER_SIZE:]
+                self._size = _MAX_STREAM_BUFFER_SIZE
         if self._wrapped:
             self._wrapped.write(text)
 
@@ -109,6 +172,7 @@ class StreamWriter:
     def get_buffer(self) -> str:
         result = "".join(self._buffer)
         self._buffer.clear()
+        self._size = 0
         return result
 
     def __getattr__(self, name: str) -> Any:
@@ -218,54 +282,227 @@ def start_command_port(port: int) -> str:
     return json.dumps({"success": True, "port": port})
 
 
-class QtCommandServer:
-    """Qt-based TCP command server for Maya MCP.
+def dispatch_request(request: dict[str, Any], server: Any = None) -> dict[str, Any]:
+    """Dispatch one decoded request to the helper method table.
 
-    Runs on Maya's main thread using Qt's event loop.
-    Uses QTimer for non-blocking I/O processing.
-    Supports multiple concurrent client connections.
+    Transport-agnostic: used by ClientChannel (Qt framed channel) and
+    testable without Qt. Returns the response dict - never raises; handler
+    failures become structured errors.
     """
 
-    def __init__(self, port: int = 0):
+    method = request.get("method")
+    params = request.get("params", {})
+    req_id = request.get("id")
+
+    try:
+        # Dispatch to existing helper functions
+        if method == "execute":
+            result_str = execute(params.get("code", ""), params.get("result_type", "NONE"))
+            result_obj = json.loads(result_str)
+            return {
+                "id": req_id,
+                "result": result_obj.get("result"),
+                "error": result_obj.get("error"),
+            }
+
+        elif method == "get_session_info":
+            result_str = get_session_info()
+            return {"id": req_id, "result": json.loads(result_str), "error": None}
+
+        elif method == "install_stream_capture":
+            install_stream_capture()
+            return {"id": req_id, "result": {"success": True}, "error": None}
+
+        elif method == "uninstall_stream_capture":
+            uninstall_stream_capture()
+            return {"id": req_id, "result": {"success": True}, "error": None}
+
+        elif method == "get_buffered_output":
+            result_str = get_buffered_output()
+            return {"id": req_id, "result": json.loads(result_str), "error": None}
+
+        elif method == "create_module":
+            # create_module is defined in maya_bootstrap.py which is
+            # exec'd into Maya's global namespace, so it's available via globals()
+            create_module_func = globals().get("create_module")
+            if create_module_func is None:
+                return {
+                    "id": req_id,
+                    "result": None,
+                    "error": {"code": "unavailable",
+                              "message": "create_module function not available"},
+                }
+            result_str = create_module_func(
+                params.get("name", ""), params.get("code", ""), params.get("overwrite", False)
+            )
+            result_obj = json.loads(result_str)
+            if "error" in result_obj:
+                err = result_obj["error"]
+                if not isinstance(err, dict):
+                    err = {"message": str(err)}
+                return {"id": req_id, "result": None, "error": err}
+            return {"id": req_id, "result": result_obj, "error": None}
+
+        elif method == "ping":
+            return {"id": req_id, "result": "pong", "error": None}
+
+        elif method == "health":
+            result: dict[str, Any] = {"status": "ok"}
+            if server is not None:
+                result["port"] = getattr(server, "port", None)
+                result["clients"] = len(getattr(server, "_channels", {}))
+                started = getattr(server, "_started_at", None)
+                if started:
+                    result["uptime_s"] = round(time.monotonic() - started, 3)
+            return {"id": req_id, "result": result, "error": None}
+
+        else:
+            return {
+                "id": req_id,
+                "result": None,
+                "error": {"code": "unknown_method",
+                          "message": f"Unknown method: {method}"},
+            }
+    except Exception as e:
+        return {
+            "id": req_id,
+            "result": None,
+            "error": {
+                "type": f"{type(e).__module__}.{type(e).__name__}",
+                "message": str(e),
+                "traceback": traceback.format_exc(),
+            },
+        }
+
+
+def handle_frame(payload: bytes, server: Any = None) -> dict[str, Any]:
+    """Decode one frame payload (JSON request) and return the response dict.
+
+    Never raises: a malformed payload yields a structured error response.
+    """
+
+    request = None
+    try:
+        request = json.loads(payload.decode("utf-8"))
+        return dispatch_request(request, server)
+    except Exception as e:
+        req_id = request.get("id") if isinstance(request, dict) else None
+        return {
+            "id": req_id,
+            "result": None,
+            "error": {
+                "type": f"{type(e).__module__}.{type(e).__name__}",
+                "message": str(e),
+                "traceback": traceback.format_exc(),
+            },
+        }
+
+
+class ClientChannel:
+    """Per-connection framed command queue (transport-agnostic core).
+
+    QtCommandServer wires QTcpSocket.readyRead to feed_socket(); decoded
+    request frames queue FIFO per connection and are dispatched in order.
+    Kept Qt-free so the protocol path is testable without an event loop.
+    """
+
+    def __init__(self, sock: Any, server: Any = None,
+                 max_frame_size: int = MAX_FRAME_SIZE) -> None:
+        self.socket = sock
+        self.server = server
+        self.max_frame_size = max_frame_size
+        self.decoder = FrameDecoder(max_frame_size)
+        self._queue: deque[bytes] = deque()
+        self.closed = False
+
+    def feed_socket(self) -> None:
+        """Drain available socket bytes -> frames -> FIFO dispatch."""
+        if self.closed:
+            return
+        try:
+            frames = self.decoder.feed(bytes(self.socket.readAll()))
+        except FrameTooLargeError as e:
+            self._write_obj({
+                "id": None,
+                "result": None,
+                "error": {"code": "frame_too_large", "message": str(e)},
+            })
+            self.close()
+            return
+        self._queue.extend(frames)
+        self._drain()
+
+    def _drain(self) -> None:
+        while self._queue and not self.closed:
+            payload = self._queue.popleft()
+            self._write_obj(handle_frame(payload, self.server))
+
+    def _write_obj(self, obj: dict[str, Any]) -> None:
+        data = json.dumps(obj).encode("utf-8")
+        if len(data) > self.max_frame_size:
+            obj = {
+                "id": obj.get("id") if isinstance(obj, dict) else None,
+                "result": None,
+                "error": {
+                    "code": "response_too_large",
+                    "message": (
+                        f"response {len(data)}B exceeds "
+                        f"frame cap {self.max_frame_size}B"
+                    ),
+                },
+            }
+            data = json.dumps(obj).encode("utf-8")
+        frame = len(data).to_bytes(FRAME_HEADER_SIZE, "big") + data
+        self.socket.write(frame)
+        self.socket.flush()
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.socket.disconnectFromHost()
+        except Exception:
+            pass
+
+
+class QtCommandServer:
+    """Qt-based TCP command server for Maya MCP (D-013 / ADR-0010).
+
+    Runs on Maya's main thread inside the Qt event loop. readyRead is
+    event-driven (no polling timer); each connection owns a ClientChannel
+    with a framed FIFO command queue. Binds localhost only and rejects
+    non-loopback peers.
+    """
+
+    def __init__(self, port: int = 0, max_frame_size: int = MAX_FRAME_SIZE):
         if QTcpServer is None:
             raise RuntimeError("Qt not available - cannot create command server")
 
         self._server = QTcpServer()
-        # client_id -> {socket, input_buffer, output_queue}
-        self._clients: dict[int, dict[str, Any]] = {}
-        self._process_timer = QTimer()
+        self._channels: dict[int, ClientChannel] = {}
+        self._max_frame_size = max_frame_size
         self._port = port
         self._running = False
         self._next_client_id = 0
+        self._started_at: float | None = None
 
-        # Connect signals
         self._server.newConnection.connect(self._on_new_connection)
-        self._process_timer.timeout.connect(self._process_messages)
 
     def start(self) -> None:
-        """Start listening on OS-assigned port."""
-        # Listen on loopback with OS-assigned port (port 0)
+        """Start listening on localhost (port 0 -> OS-assigned)."""
         if not self._server.listen(QHostAddress.LocalHost, self._port):
             raise RuntimeError(f"Failed to start server: {self._server.errorString()}")
-
-        # if port was 0, it's OS-assigned, so reassign new value
         self._port = self._server.serverPort()
         self._running = True
-
-        # Start message processing timer (check every 50ms)
-        self._process_timer.start(50)
+        self._started_at = time.monotonic()
 
     def stop(self) -> None:
-        """Stop the server and close connections."""
+        """Stop the server and close all client channels."""
         self._running = False
-        self._process_timer.stop()
-
-        # Disconnect all clients
-        for client_id in list(self._clients.keys()):
-            client_info = self._clients[client_id]
-            client_info["socket"].disconnectFromHost()
-
-        self._clients.clear()
+        for channel in list(self._channels.values()):
+            channel.close()
+        self._channels.clear()
         self._server.close()
 
     @property
@@ -273,167 +510,41 @@ class QtCommandServer:
         """Get the actual port the server is listening on."""
         return self._port
 
-    def _on_new_connection(self) -> None:
-        """Handle new client connection."""
-        socket = self._server.nextPendingConnection()
+    @property
+    def client_count(self) -> int:
+        return len(self._channels)
 
-        # Assign unique client ID
+    def _on_new_connection(self) -> None:
+        """Handle new client connection (Qt signal)."""
+        sock = self._server.nextPendingConnection()
+        if sock is None:
+            return
+
+        # localhost-only: belt-and-suspenders on top of the LocalHost bind
+        try:
+            if not sock.peerAddress().isLoopback():
+                sock.disconnectFromHost()
+                return
+        except Exception:
+            pass
+
         client_id = self._next_client_id
         self._next_client_id += 1
-
-        # Store client info
-        self._clients[client_id] = {"socket": socket, "input_buffer": "", "output_queue": []}
-
-        # Connect signals with client_id
-        socket.readyRead.connect(lambda cid=client_id: self._on_ready_read(cid))
-        socket.disconnected.connect(lambda cid=client_id: self._on_disconnected(cid))
+        self._channels[client_id] = ClientChannel(
+            sock, server=self, max_frame_size=self._max_frame_size
+        )
+        sock.readyRead.connect(lambda cid=client_id: self._on_ready_read(cid))
+        sock.disconnected.connect(lambda cid=client_id: self._on_disconnected(cid))
 
     def _on_ready_read(self, client_id: int) -> None:
-        """Read data from client (called by Qt signal)."""
-        # Just mark that data is available; actual processing in timer
-        pass
+        """Socket has data ready (Qt signal): feed its channel."""
+        channel = self._channels.get(client_id)
+        if channel is not None:
+            channel.feed_socket()
 
     def _on_disconnected(self, client_id: int) -> None:
         """Handle client disconnect."""
-        if client_id in self._clients:
-            del self._clients[client_id]
-
-    def _process_messages(self) -> None:
-        """Process incoming/outgoing messages (called by timer)."""
-        # Cleanup stale clients (disconnected sockets)
-        stale_clients = []
-        for client_id, client_info in self._clients.items():
-            socket = client_info["socket"]
-            if not socket.isValid() or socket.state() != QTcpSocket.ConnectedState:
-                stale_clients.append(client_id)
-
-        for client_id in stale_clients:
-            del self._clients[client_id]
-
-        # Process each client
-        for client_id, client_info in list(self._clients.items()):
-            socket = client_info["socket"]
-            input_buffer = client_info["input_buffer"]
-            output_queue = client_info["output_queue"]
-
-            # Process incoming messages
-            if socket.bytesAvailable() > 0:
-                data = bytes(socket.readAll()).decode("utf-8")
-                input_buffer += data
-                client_info["input_buffer"] = input_buffer
-
-                # Process complete lines
-                while "\n" in input_buffer:
-                    line, input_buffer = input_buffer.split("\n", 1)
-                    client_info["input_buffer"] = input_buffer
-                    if line.strip():
-                        self._handle_message(client_id, line.strip())
-
-            # Process outgoing messages
-            if output_queue:
-                message = output_queue.pop(0)
-                socket.write((message + "\n").encode("utf-8"))
-                socket.flush()
-
-    def _handle_message(self, client_id: int, line: str) -> None:
-        """Handle a complete JSON message."""
-        if client_id not in self._clients:
-            return
-
-        output_queue = self._clients[client_id]["output_queue"]
-        request: Any = None
-
-        try:
-            request = json.loads(line)
-            response = self._dispatch_request(request)
-            output_queue.append(json.dumps(response))
-        except Exception as e:
-            error_response = {
-                "id": request.get("id") if isinstance(request, dict) else None,
-                "result": None,
-                "error": {
-                    "type": f"{type(e).__module__}.{type(e).__name__}",
-                    "message": str(e),
-                    "traceback": traceback.format_exc(),
-                },
-            }
-            output_queue.append(json.dumps(error_response))
-
-    def _dispatch_request(self, request: dict[str, Any]) -> dict[str, Any]:
-        """Dispatch request to appropriate handler."""
-        method = request.get("method")
-        params = request.get("params", {})
-        req_id = request.get("id")
-
-        try:
-            # Dispatch to existing helper functions
-            if method == "execute":
-                result_str = execute(params.get("code", ""), params.get("result_type", "NONE"))
-                result_obj = json.loads(result_str)
-                return {
-                    "id": req_id,
-                    "result": result_obj.get("result"),
-                    "error": result_obj.get("error"),
-                }
-
-            elif method == "get_session_info":
-                result_str = get_session_info()
-                return {"id": req_id, "result": json.loads(result_str), "error": None}
-
-            elif method == "install_stream_capture":
-                install_stream_capture()
-                return {"id": req_id, "result": {"success": True}, "error": None}
-
-            elif method == "uninstall_stream_capture":
-                uninstall_stream_capture()
-                return {"id": req_id, "result": {"success": True}, "error": None}
-
-            elif method == "get_buffered_output":
-                result_str = get_buffered_output()
-                return {"id": req_id, "result": json.loads(result_str), "error": None}
-
-            elif method == "create_module":
-                # create_module is defined in maya_bootstrap.py which is
-                # exec'd into Maya's global namespace, so it's available via globals()
-                create_module_func = globals().get("create_module")
-                if create_module_func is None:
-                    return {
-                        "id": req_id,
-                        "result": None,
-                        "error": {"code": "unavailable",
-                                  "message": "create_module function not available"},
-                    }
-                result_str = create_module_func(
-                    params.get("name", ""), params.get("code", ""), params.get("overwrite", False)
-                )
-                result_obj = json.loads(result_str)
-                if "error" in result_obj:
-                    err = result_obj["error"]
-                    if not isinstance(err, dict):
-                        err = {"message": str(err)}
-                    return {"id": req_id, "result": None, "error": err}
-                return {"id": req_id, "result": result_obj, "error": None}
-
-            elif method == "ping":
-                return {"id": req_id, "result": "pong", "error": None}
-
-            else:
-                return {
-                    "id": req_id,
-                    "result": None,
-                    "error": {"code": "unknown_method",
-                              "message": f"Unknown method: {method}"},
-                }
-        except Exception as e:
-            return {
-                "id": req_id,
-                "result": None,
-                "error": {
-                    "type": f"{type(e).__module__}.{type(e).__name__}",
-                    "message": str(e),
-                    "traceback": traceback.format_exc(),
-                },
-            }
+        self._channels.pop(client_id, None)
 
 
 # Global Qt server instance

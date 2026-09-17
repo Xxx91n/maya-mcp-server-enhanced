@@ -49,7 +49,7 @@ tests/
 
 1. **No Maya client modification** — everything works through existing `execute_code` + `write_module` channels
 2. **Maya-side module injection** — `_mcp_scene` is injected once via `write_module` on first scene tool call
-3. **Large module handling** — modules >15K chars use temp-file injection to avoid command port buffer issues
+3. **Large module handling** — GUI/Qt sessions inject modules of any size directly via the framed channel (16 MiB cap, D-013); temp-file injection is retained only for headless/native commandPort sessions
 4. **Response alignment** — `execute_code` handles both `str` and `dict` results to prevent `json.loads` errors
 5. **CoS notation** — Chain-of-Symbol format saves ~65% tokens vs raw JSON
 
@@ -134,7 +134,7 @@ python scripts/dependency.py --path src
 
 ## Known Quirks
 
-- Maya command port produces stale responses when large modules (>10K chars) are written. Fixed via temp-file injection for `_mcp_scene`.
+- Maya command port produces stale responses when large modules (>10K chars) are written. Qt sessions use the framed channel directly; the temp-file fallback is retained only for headless/native sessions (D-013).
 - `execute_code` with `result_type="JSON"` may receive `dict` directly (not `str`). The client handles both.
 - Stream capture auto-installs on first `get_client()` call.
 - `import X; X.func()` pattern can fail with `prepare_code_for_result_capture`. Pre-import with `execute_code("import X", NONE)` then use expression-only calls.

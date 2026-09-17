@@ -11,6 +11,18 @@ from maya_mcp_server.types import MayaListeningPort
 logger = logging.getLogger(__name__)
 
 
+def is_loopback_host(host: str) -> bool:
+    """True when host is a loopback address (127.0.0.0/8, ::1, localhost)."""
+    if host in ("localhost", "localhost.localdomain"):
+        return True
+    try:
+        import ipaddress
+
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def get_platform() -> str:
     """Get normalized platform name."""
     system = platform.system().lower()

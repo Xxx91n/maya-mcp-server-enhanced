@@ -59,7 +59,11 @@ validate → rate-limit → pattern-scan → dispatch → audit.
 ## 4. Port and network exposure
 
 - The MCP server speaks stdio/SSE to its client; the Maya channel is a
-  localhost TCP command port (default `:7001`, sourceType=python).
+  localhost TCP command port (default `:7001`, sourceType=python) used for
+  discovery/bootstrap, plus a Qt TCP working channel (localhost-only,
+  length-prefixed frames, 16 MiB cap, ports 50000-60000) created during
+  bootstrap. Headless Maya (no Qt event loop) keeps a dedicated commandPort
+  as the minimal working channel.
 - The command port binds localhost only; `allow_remote_connections`
   defaults to False and there is no remote path today.
 - Anyone who can reach the command port can run Python inside Maya —

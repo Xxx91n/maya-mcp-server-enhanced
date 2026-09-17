@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from maya_mcp_server.client import (
     MayaClient,
+    MayaConnectionError,
     MayaExecutionError,
     MayaQtClient,
+    MayaTimeoutError,
+    MayaUnavailableError,
 )
 from maya_mcp_server.types import (
     CommandResponse,
     OutputBuffer,
+    PortType,
     ResultType,
     SessionInfo,
 )
@@ -569,3 +574,160 @@ class TestMayaQtClientExecuteCode:
             {"code": "get_dict()", "result_type": "JSON"},
             raise_on_error=False,
         )
+
+
+# ============================================================================
+# T-05: typed errors + write_module dead-response fix
+# ============================================================================
+
+
+class TestTypedErrors:
+    """D-013/D-019: typed channel errors keep [code] prefixes."""
+
+    def test_connection_error_is_unavailable_alias(self) -> None:
+        """MayaConnectionError is kept as the backwards-compat name."""
+        assert MayaConnectionError is MayaUnavailableError
+
+    def test_unavailable_code(self) -> None:
+        err = MayaUnavailableError("no route")
+        assert err.code == "maya_unavailable"
+        assert "[maya_unavailable]" in str(err)
+
+    def test_timeout_is_subclass_of_unavailable(self) -> None:
+        assert issubclass(MayaTimeoutError, MayaUnavailableError)
+
+    @pytest.mark.asyncio
+    async def test_native_send_receive_timeout_is_typed(self, maya_client: MayaClient) -> None:
+        """commandPort read timeout raises MayaTimeoutError, not a generic error."""
+        maya_client.timeout = 0.05
+        maya_client._writer.drain = AsyncMock()
+
+        class _SlowReader:
+            async def read(self, n: int) -> bytes:
+                await asyncio.sleep(5)
+                return b""
+
+        maya_client._reader = _SlowReader()
+
+        with pytest.raises(MayaTimeoutError) as ei:
+            await maya_client._send_receive("1+1")
+        assert ei.value.code == "maya_timeout"
+        assert isinstance(ei.value, MayaConnectionError)
+
+
+class TestMayaClientWriteModuleDeadResponse:
+    """T-05/D-014c: native create_module returns errors INSIDE the result
+    payload - write_module must surface them instead of silently succeeding."""
+
+    @pytest.mark.asyncio
+    async def test_inner_error_dict_raises(self, maya_client: MayaClient, mocker) -> None:
+        mocker.patch.object(
+            maya_client,
+            "_send_receive",
+            new_callable=AsyncMock,
+            return_value=CommandResponse(
+                result={
+                    "error": {
+                        "code": "module_exists",
+                        "message": "Module 'mymodule' already exists. Use overwrite=True.",
+                    }
+                },
+                error=None,
+            ),
+        )
+
+        with pytest.raises(MayaExecutionError, match="already exists"):
+            await maya_client.write_module("mymodule", "x = 1")
+
+    @pytest.mark.asyncio
+    async def test_inner_error_json_string_raises(self, maya_client: MayaClient, mocker) -> None:
+        mocker.patch.object(
+            maya_client,
+            "_send_receive",
+            new_callable=AsyncMock,
+            return_value=CommandResponse(
+                result='{"error": {"code": "module_exists", "message": "Module X exists"}}',
+                error=None,
+            ),
+        )
+
+        with pytest.raises(MayaExecutionError, match="exists"):
+            await maya_client.write_module("x", "y = 2")
+
+    @pytest.mark.asyncio
+    async def test_json_string_success_returns_message(
+        self, maya_client: MayaClient, mocker
+    ) -> None:
+        mocker.patch.object(
+            maya_client,
+            "_send_receive",
+            new_callable=AsyncMock,
+            return_value=CommandResponse(
+                result='{"success": true, "message": "Module mymodule created"}',
+                error=None,
+            ),
+        )
+
+        result = await maya_client.write_module("mymodule", "x = 1")
+
+        assert result == "Module mymodule created"
+
+
+class TestBootstrapFallback:
+    """D-013: headless Maya (no Qt event loop) must degrade to a native
+    commandPort instead of failing when the Qt server cannot start."""
+
+    @pytest.mark.asyncio
+    async def test_qt_start_failure_falls_back_to_native(
+        self, maya_client: MayaClient, mocker
+    ) -> None:
+        calls: list[str] = []
+
+        async def fake_send(method, params=None, raise_on_error=True):
+            calls.append(method)
+            if method == maya_client.START_QT_SERVER:
+                return CommandResponse(
+                    result=None,
+                    error={"type": "RuntimeError", "message": "Qt not available"},
+                )
+            if method == maya_client.START_COMMAND_PORT:
+                return CommandResponse(result={"success": True, "port": params["port"]}, error=None)
+            return CommandResponse(result=None, error=None)
+
+        mocker.patch.object(maya_client, "_bootstrap", new=AsyncMock())
+        mocker.patch.object(maya_client, "_send_receive", side_effect=fake_send)
+        mocker.patch(
+            "maya_mcp_server.client.MayaClient.connect", new=AsyncMock()
+        )
+        mocker.patch("maya_mcp_server.client.asyncio.sleep", new=AsyncMock())
+
+        new_client = await maya_client.bootstrap(client_type="qt")
+
+        assert type(new_client) is MayaClient
+        assert new_client.framed_channel is False
+        assert maya_client.START_QT_SERVER in calls
+        assert maya_client.START_COMMAND_PORT in calls
+
+    @pytest.mark.asyncio
+    async def test_qt_success_uses_framed_client(
+        self, maya_client: MayaClient, mocker
+    ) -> None:
+        qt_port = 55_555
+
+        async def fake_send(method, params=None, raise_on_error=True):
+            if method == maya_client.START_QT_SERVER:
+                return CommandResponse(result={"port": qt_port}, error=None)
+            return CommandResponse(result=None, error=None)
+
+        mocker.patch.object(maya_client, "_bootstrap", new=AsyncMock())
+        mocker.patch.object(maya_client, "_send_receive", side_effect=fake_send)
+        mocker.patch(
+            "maya_mcp_server.client.MayaQtClient.connect", new=AsyncMock()
+        )
+        mocker.patch("maya_mcp_server.client.asyncio.sleep", new=AsyncMock())
+
+        new_client = await maya_client.bootstrap(client_type="qt")
+
+        assert isinstance(new_client, MayaQtClient)
+        assert new_client.port == qt_port
+        assert new_client.framed_channel is True

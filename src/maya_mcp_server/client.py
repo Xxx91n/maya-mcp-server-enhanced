@@ -16,6 +16,11 @@ from maya_mcp_server.bootstrap import (
     get_bootstrap_code,
     get_helper_module_code,
 )
+from maya_mcp_server.maya_mcp_helper import (
+    FRAME_HEADER_SIZE,
+    MAX_FRAME_SIZE,
+    encode_frame,
+)
 from maya_mcp_server.security import (
     InputValidationError,
     PipelineError,
@@ -44,11 +49,24 @@ MAX_BUFFER_SIZE = 10_485_760
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_RETRY_DELAY = 0.5  # seconds
 
+# Connect retry schedule (D-013): exponential backoff 0.5s / 1s / 2s
+CONNECT_RETRY_DELAYS = (0.5, 1.0, 2.0)
 
-class MayaConnectionError(PipelineError):
-    """Error connecting to Maya (host-side failure -> isError + code)."""
+
+class MayaUnavailableError(PipelineError):
+    """Maya channel unreachable (host-side failure -> isError + code)."""
 
     code = "maya_unavailable"
+
+
+# Backwards-compatible name: D-019 pins the code, existing code the class name.
+MayaConnectionError = MayaUnavailableError
+
+
+class MayaTimeoutError(MayaUnavailableError):
+    """Timed out waiting on the Maya channel."""
+
+    code = "maya_timeout"
 
 
 class MayaExecutionError(PipelineError):
@@ -86,6 +104,11 @@ class BaseMayaClient(ABC):
     INSTALL_STREAM_CAPTURE: ClassVar[str]
     UNINSTALL_STREAM_CAPTURE: ClassVar[str]
     GET_BUFFERED_OUTPUT: ClassVar[str]
+
+    # True when the transport carries length-prefixed frames and can move
+    # multi-MB payloads safely (D-013). False = native commandPort, whose
+    # line protocol is bootstrap/headless-only and never promised large loads.
+    framed_channel: ClassVar[bool] = False
 
     host: str = "127.0.0.1"
     port: int = 7001
@@ -133,7 +156,7 @@ class BaseMayaClient(ABC):
             )
             logger.info(f"Connected to Maya at {self.host}:{self.port}")
         except asyncio.TimeoutError as e:
-            raise MayaConnectionError(
+            raise MayaTimeoutError(
                 f"Timeout connecting to Maya at {self.host}:{self.port}"
             ) from e
         except OSError as e:
@@ -455,7 +478,7 @@ class MayaClient(BaseMayaClient):
                     return CommandResponse(result=response_str, error=None)
 
             except asyncio.TimeoutError as e:
-                raise MayaExecutionError("Timeout waiting for Maya response") from e
+                raise MayaTimeoutError("Timeout waiting for Maya response") from e
             except MayaExecutionError:
                 raise
             except Exception as e:
@@ -568,18 +591,43 @@ class MayaClient(BaseMayaClient):
             # Therefore, the port returned by _send_receive might be different than requested.
             logger.info(f"Starting Qt server on port {new_port}")
             result = await self._send_receive(self.START_QT_SERVER, {"port": new_port})
-            # Extract the actual port from the response (may differ if server was already running)
-            if result.result and isinstance(result.result, dict):
-                new_port = result.result.get("port", new_port)
-            logger.info(f"Qt server started on port {new_port}")
+            qt_error = result.error
+            if qt_error is None and isinstance(result.result, dict):
+                qt_error = result.result.get("error")
 
-            # Wait a moment for the port to start listening
-            await asyncio.sleep(0.5)
+            if qt_error:
+                # Headless Maya (mayapy) has no Qt event loop. Per D-013 the
+                # native commandPort is the minimal fallback working channel
+                # there - it never promises large payloads.
+                logger.warning(
+                    f"Qt server unavailable ({qt_error}); "
+                    "falling back to a dedicated native commandPort"
+                )
+                result = await self._send_receive(self.START_COMMAND_PORT, {"port": new_port})
+                logger.info(f"Dedicated commandPort created: {result}")
+                await asyncio.sleep(0.5)
+                new_client = MayaClient(
+                    host=self.host,
+                    port=new_port,
+                    timeout=self.timeout,
+                    buffer_size=self.buffer_size,
+                )
+            else:
+                # The port may differ if the Qt server was already running
+                if result.result and isinstance(result.result, dict):
+                    new_port = result.result.get("port", new_port)
+                logger.info(f"Qt server started on port {new_port}")
 
-            logger.info(f"Connecting to dedicated port {new_port}...")
-            new_client = MayaQtClient(
-                host=self.host, port=new_port, timeout=self.timeout, buffer_size=self.buffer_size
-            )
+                # Wait a moment for the port to start listening
+                await asyncio.sleep(0.5)
+
+                logger.info(f"Connecting to dedicated port {new_port}...")
+                new_client = MayaQtClient(
+                    host=self.host,
+                    port=new_port,
+                    timeout=self.timeout,
+                    buffer_size=self.buffer_size,
+                )
         else:
             raise InputValidationError(
                 f"Unknown client_type {client_type!r}"
@@ -588,95 +636,6 @@ class MayaClient(BaseMayaClient):
         await new_client.connect()
         logger.info(f"Connected to dedicated port {new_port}")
         return new_client
-
-    async def bootstrap_new(self) -> MayaQtClient:
-        """
-        Bootstrap the Maya session with helper functions.
-
-        This creates the _mcp module in Maya's sys.modules,
-        providing utilities for code execution with capture.
-        Also starts the Qt command server and switches to it.
-        """
-        # Skip port detection - assume Python port and send commands directly
-        # Maya command ports can be finicky with responses, so we'll just send
-        # all bootstrap code and then connect to the Qt server it creates
-
-        logger.info("Bootstrapping Maya session (sending code without waiting for responses)...")
-
-        if not self._writer:
-            raise MayaConnectionError("Not connected to Maya")
-
-        # Phase 1: Execute bootstrap code to create create_module function
-        bootstrap_code = get_bootstrap_code()
-        bootstrap_cmd = f"exec({bootstrap_code!r}, globals())"
-        self._writer.write(bootstrap_cmd.encode("utf-8") + b"\n")
-        await self._writer.drain()
-        await asyncio.sleep(0.1)  # Give Maya time to execute
-
-        # Phase 2: Create the helper module
-        helper_code = get_helper_module_code()
-        cmd = self.CREATE_MODULE_TEMPLATE.format(name="maya_mcp", code=helper_code, overwrite=False)
-        cmd = cmd.split(".", 1)[-1]  # Remove module prefix
-        self._writer.write(cmd.encode("utf-8") + b"\n")
-        await self._writer.drain()
-        await asyncio.sleep(0.1)
-
-        # Phase 3: Start Qt server and detect the new port
-        # Get current ports before starting server
-        from maya_mcp_server.utils import get_maya_listening_ports
-
-        ports_before = {p["port"] for p in get_maya_listening_ports()}
-        logger.debug(f"Ports before Qt server: {ports_before}")
-
-        # Start the Qt server
-        start_cmd = f"{self.START_QT_SERVER}"
-        self._writer.write(start_cmd.encode("utf-8") + b"\n")
-        await self._writer.drain()
-
-        # Wait for new port to appear
-        logger.info("Waiting for Qt server to start...")
-        try:
-            qt_port = None
-            for attempt in range(30):  # Try for 3 seconds (30 * 0.1s)
-                await asyncio.sleep(0.1)
-
-                # Check for new ports
-                ports_after = {p["port"] for p in get_maya_listening_ports()}
-                new_ports = ports_after - ports_before
-
-                if new_ports:
-                    # Found a new port - this should be our Qt server
-                    qt_port = new_ports.pop()
-                    logger.info(f"Detected Qt server on port {qt_port}")
-                    break
-
-            if not qt_port:
-                raise MayaConnectionError(
-                    "Failed to detect Qt server port - no new ports opened by Maya"
-                )
-
-            # Connect to Qt server with retry logic
-            qt_client = MayaQtClient(host=self.host, port=qt_port, timeout=self.timeout)
-            await qt_client.connect()
-
-            # Disconnect from commandPort (free it for others)
-            if self._writer:
-                old_port = self.port
-                self._writer.close()
-                try:
-                    await self._writer.wait_closed()
-                except Exception:
-                    pass
-                logger.info(
-                    f"Disconnected from commandPort {old_port},"
-                     f"now using Qt server on port {qt_port}"
-                )
-
-        except Exception as e:
-            raise MayaConnectionError(f"Qt server bootstrap failed: {e}") from e
-
-        logger.info("Maya session bootstrapped with Qt server")
-        return qt_client
 
     async def write_module(
         self,
@@ -703,6 +662,28 @@ class MayaClient(BaseMayaClient):
             {"name": name, "code": code, "overwrite": overwrite},
         )
         raise_for_error(response)
+
+        # The native commandPort wraps create_module()'s JSON in the raw result
+        # payload: errors arrive inside result, not in response.error. Surface
+        # them instead of reporting success on a dead response.
+        result = response.result
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if isinstance(result, dict):
+            inner_error = result.get("error")
+            if inner_error:
+                if isinstance(inner_error, dict):
+                    raise MayaExecutionError(
+                        f"{inner_error.get('code', 'module_error')}: "
+                        f"{inner_error.get('message', 'module creation failed')}"
+                    )
+                raise MayaExecutionError(str(inner_error))
+            message = result.get("message")
+            if message:
+                return str(message)
         return f"Module '{name}' created"
 
     async def ping(self) -> bool:
@@ -720,7 +701,14 @@ class MayaClient(BaseMayaClient):
 
 
 class MayaQtClient(BaseMayaClient):
-    """Async client for communicating with our custom Maya Qt Command Server."""
+    """Async client for the custom Maya Qt command server (D-013/ADR-0010).
+
+    Primary working channel: length-prefixed frames (16 MiB cap) over a
+    localhost-only QTcpServer; per-connection FIFO queue Maya-side;
+    requests here are serialized by self._lock and correlated by id.
+    """
+
+    framed_channel: ClassVar[bool] = True
 
     GET_SESSION_INFO = "get_session_info"
     EXECUTE_TEMPLATE = "execute"
@@ -734,11 +722,11 @@ class MayaQtClient(BaseMayaClient):
         self._request_counter: int = 0
 
     async def connect(self) -> None:
-        """Connect to the Qt server with retry logic."""
-        max_retries = 3
-        retry_delay = 0.5  # Start with 0.5 seconds
+        """Connect to the Qt server, retrying on the 0.5/1/2s backoff schedule."""
+        last_error: Exception | None = None
+        attempts = len(CONNECT_RETRY_DELAYS) + 1
 
-        for attempt in range(max_retries):
+        for attempt in range(attempts):
             try:
                 self._reader, self._writer = await asyncio.wait_for(
                     asyncio.open_connection(self.host, self.port),
@@ -746,17 +734,25 @@ class MayaQtClient(BaseMayaClient):
                 )
                 logger.info(f"Connected to Qt server at {self.host}:{self.port}")
                 return
-            except Exception as e:
-                if attempt < max_retries - 1:
+            except (OSError, asyncio.TimeoutError) as e:
+                last_error = e
+                if attempt < attempts - 1:
+                    delay = CONNECT_RETRY_DELAYS[attempt]
                     logger.warning(
-                        f"Failed to connect to Qt server (attempt {attempt + 1}/{max_retries}): {e}"
+                        f"Failed to connect to Qt server "
+                        f"(attempt {attempt + 1}/{attempts}): {e}; retry in {delay}s"
                     )
-                    await asyncio.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                else:
-                    raise MayaConnectionError(
-                        f"Failed to connect to Qt server after {max_retries} attempts: {e}"
-                    ) from e
+                    await asyncio.sleep(delay)
+
+        if isinstance(last_error, asyncio.TimeoutError):
+            raise MayaTimeoutError(
+                f"Timeout connecting to Qt server at {self.host}:{self.port} "
+                f"after {attempts} attempts"
+            ) from last_error
+        raise MayaUnavailableError(
+            f"Failed to connect to Qt server at {self.host}:{self.port} "
+            f"after {attempts} attempts: {last_error}"
+        ) from last_error
 
     async def write_module(
         self,
@@ -801,31 +797,39 @@ class MayaQtClient(BaseMayaClient):
             CommandResponse with result and error attributes
         """
         if not self._writer or not self._reader:
-            raise MayaConnectionError("Not connected to Qt server")
+            raise MayaUnavailableError("Not connected to Qt server")
 
         async with self._lock:
             # Generate request ID
             self._request_counter += 1
             request_id = f"req-{self._request_counter}"
 
-            # Build request
+            # Build + frame the request
             request = {"id": request_id, "method": method, "params": params or {}}
-
-            try:
-                # Send request
-                request_line = json.dumps(request) + "\n"
-                self._writer.write(request_line.encode("utf-8"))
-                await self._writer.drain()
-
-                # Read response (line-delimited JSON)
-                response_line = await asyncio.wait_for(
-                    self._reader.readline(), timeout=self.timeout
+            payload = json.dumps(request).encode("utf-8")
+            if len(payload) > MAX_FRAME_SIZE:
+                raise InputValidationError(
+                    f"request {len(payload)}B exceeds frame cap {MAX_FRAME_SIZE}B"
                 )
 
-                if not response_line:
-                    raise MayaConnectionError("Connection closed by Qt server")
+            try:
+                self._writer.write(encode_frame(payload))
+                await self._writer.drain()
 
-                response = json.loads(response_line.decode("utf-8"))
+                # Read one length-prefixed response frame
+                header = await asyncio.wait_for(
+                    self._reader.readexactly(FRAME_HEADER_SIZE), timeout=self.timeout
+                )
+                frame_len = int.from_bytes(header, "big")
+                if frame_len > MAX_FRAME_SIZE:
+                    raise MayaExecutionError(
+                        f"response frame {frame_len}B exceeds cap {MAX_FRAME_SIZE}B"
+                    )
+                body = await asyncio.wait_for(
+                    self._reader.readexactly(frame_len), timeout=self.timeout
+                )
+
+                response = json.loads(body.decode("utf-8"))
 
                 # Validate response ID
                 if response.get("id") != request_id:
@@ -836,19 +840,23 @@ class MayaQtClient(BaseMayaClient):
                 # Check for error
                 if raise_on_error and response.get("error"):
                     error = response["error"]
-                    raise MayaExecutionError(f"{error.get('message', 'Unknown error')}")
+                    if isinstance(error, dict):
+                        raise MayaExecutionError(f"{error.get('message', 'Unknown error')}")
+                    raise MayaExecutionError(str(error))
 
                 # Return CommandResponse
                 return CommandResponse(result=response.get("result"), error=response.get("error"))
 
             except asyncio.TimeoutError as e:
-                raise MayaExecutionError("Timeout waiting for Qt server response") from e
+                raise MayaTimeoutError("Timeout waiting for Qt server response") from e
+            except asyncio.IncompleteReadError as e:
+                raise MayaUnavailableError("Connection closed by Qt server") from e
             except json.JSONDecodeError as e:
                 raise MayaExecutionError(f"Invalid JSON response from Qt server: {e}") from e
-            except Exception as e:
-                if not isinstance(e, (MayaConnectionError, MayaExecutionError)):
-                    raise MayaExecutionError(f"Error communicating with Qt server: {e}") from e
+            except (MayaUnavailableError, MayaExecutionError):
                 raise
+            except Exception as e:
+                raise MayaExecutionError(f"Error communicating with Qt server: {e}") from e
 
     async def ping(self) -> bool:
         """
@@ -863,72 +871,15 @@ class MayaQtClient(BaseMayaClient):
         except Exception:
             return False
 
+    async def health(self) -> dict[str, Any]:
+        """Deeper health probe: server status, port, client count, uptime.
 
-if __name__ == "__main__":
-    cmd = """
-import maya.cmds
-maya.cmds.ls(cameras=True)
-"""
-
-    port = 7001
-
-    # Native
-    import socket
-
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect(("127.0.0.1", port))
-
-    client.send(cmd.encode("utf-8"))
-
-    result = data = client.recv(1024)
-    while len(data) == 1024:
-        data = client.recv(1024)
-        result += data
-    client.close()
-
-    output: str | None
-    if result:
-        output = result.decode("utf-8")
-    else:
-        output = None
-    if output:
-        print(output.strip())
-
-    # Ours
-
-    async def run() -> None:
-        client = MayaClient(port=port)
-        await client.connect()
-        result = await client._send_receive(cmd)
-        print(result)
-
-    try:
-        asyncio.run(run())
-    except KeyboardInterrupt:
-        pass
-
-    async def run2() -> None:
-        client = MayaClient(port=port)
-        await client.connect()
-        await client._bootstrap(overwrite=True)
-        result = await client.execute_code(cmd)
-        print(result)
-
-    try:
-        asyncio.run(run2())
-    except KeyboardInterrupt:
-        pass
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        Returns {"status": ...} even on a degraded channel.
+        """
+        try:
+            response = await self._send_receive("health")
+            if isinstance(response.result, dict):
+                return response.result
+        except Exception:
+            pass
+        return {"status": "unavailable"}

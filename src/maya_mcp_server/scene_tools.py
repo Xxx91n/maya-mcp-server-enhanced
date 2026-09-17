@@ -67,9 +67,11 @@ async def _ensure_module_injected(client: Any, session_key: str | None) -> None:
     # Read module source
     source = _MODULE_SOURCE.read_text(encoding="utf-8")
 
-    # For large modules, use chunked file-based injection to avoid command port buffer issues.
-    # The native command port produces stale responses when code >~20K chars is sent.
-    if len(source) > 15000:
+    # For large modules on the NATIVE (headless/bootstrap) channel, use
+    # file-based injection to avoid command port buffer issues. The Qt
+    # channel carries length-prefixed frames up to 16 MiB, so GUI sessions
+    # inject directly via write_module (D-013).
+    if len(source) > 15000 and not getattr(client, "framed_channel", False):
         import tempfile as _tf, os as _os
         _ResultType = __import__("maya_mcp_server.types", fromlist=["ResultType"]).ResultType
         # Write source to temp file on the CLIENT side, then read it from Maya

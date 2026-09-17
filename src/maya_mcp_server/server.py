@@ -334,7 +334,7 @@ async def execute_code(
 
 
 @mcp.tool(annotations=TOOL_ANNOTATIONS["add_session"])
-async def add_session(host: str = "127.0.0.1", port: int = 7002) -> SessionInfo:
+async def add_session(host: str = "127.0.0.1", port: int = 7001) -> SessionInfo:
     """
     Manually add a Maya session at a specific host and port.
 
@@ -343,7 +343,7 @@ async def add_session(host: str = "127.0.0.1", port: int = 7002) -> SessionInfo:
 
     Args:
         host: The session host (default: "127.0.0.1")
-        port: The session port number (default: 7002)
+        port: The session port number (default: 7001)
 
     Returns:
         Session information for the added session
@@ -351,10 +351,10 @@ async def add_session(host: str = "127.0.0.1", port: int = 7002) -> SessionInfo:
     Before using this, ensure Maya has a Python command port open.
     In Maya's Script Editor (Python), run:
         import maya.cmds as cmds
-        cmds.commandPort(name=':7002', sourceType='python')
+        cmds.commandPort(name=':7001', sourceType='python')
     """
-    # Validate port range
-    if not (1 < port < 65536):
+    # Validate port range (aligned with security.validate_session_key)
+    if not (0 < port < 65536):
         raise InputValidationError(f"Invalid port {port}: must be 1-65535")
 
     # Block non-localhost connections by default

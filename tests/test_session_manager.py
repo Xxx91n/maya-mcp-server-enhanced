@@ -527,30 +527,57 @@ class TestGetClient:
 
 
 class TestAddSession:
-    """Test add_session method."""
+    """Test add_session method (T-05: bootstrap return value must be stored)."""
 
     @pytest.mark.asyncio
-    async def test_add_session_new(self, session_manager: SessionManager, mocker) -> None:
-        """Test adding a new session."""
-        mock_maya_client = MagicMock(spec=MayaClient)
-        mock_maya_client.connect = AsyncMock()
-        mock_maya_client.bootstrap = AsyncMock()
-        mock_maya_client.key = "127.0.0.1:7001"
+    async def test_add_session_stores_bootstrap_client(
+        self, session_manager: SessionManager, mocker
+    ) -> None:
+        """D-013 regression: bootstrap() returns the working-channel client.
+        The session must store THAT client under its communication-port key,
+        not the config-port client."""
+        config_client = MagicMock(spec=MayaClient)
+        config_client.connect = AsyncMock()
+        config_client.disconnect = AsyncMock()
+        config_client.key = "127.0.0.1:7001"
+        work_client = MagicMock()
+        work_client.key = "127.0.0.1:50000"
+        config_client.bootstrap = AsyncMock(return_value=work_client)
 
-        mocker.patch("maya_mcp_server.session_manager.MayaClient", return_value=mock_maya_client)
+        mocker.patch(
+            "maya_mcp_server.session_manager.MayaClient", return_value=config_client
+        )
 
         result = await session_manager.add_session("127.0.0.1", 7001)
 
-        assert result is mock_maya_client
-        assert "127.0.0.1:7001" in session_manager._sessions
-        mock_maya_client.connect.assert_called_once()
-        mock_maya_client.bootstrap.assert_called_once()
+        assert result is work_client
+        assert session_manager._sessions["127.0.0.1:50000"] is work_client
+        assert "127.0.0.1:7001" not in session_manager._sessions
+        assert (
+            session_manager._config_to_session["127.0.0.1:7001"] == "127.0.0.1:50000"
+        )
+        config_client.connect.assert_called_once()
+        config_client.bootstrap.assert_called_once_with(client_type="qt")
+        config_client.disconnect.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_add_session_idempotent_via_config_key(
+        self, session_manager: SessionManager, mock_client: MagicMock
+    ) -> None:
+        """Re-adding an already-bootstrapped config port returns the session."""
+        session_manager._sessions["127.0.0.1:50000"] = mock_client
+        session_manager._config_to_session["127.0.0.1:7001"] = "127.0.0.1:50000"
+
+        result = await session_manager.add_session("127.0.0.1", 7001)
+
+        assert result is mock_client
+        mock_client.connect.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_add_session_existing(
         self, session_manager: SessionManager, mock_client: MagicMock
     ) -> None:
-        """Test adding existing session returns it without reconnecting."""
+        """Adding a key that is itself a live session returns it directly."""
         session_manager._sessions["127.0.0.1:50000"] = mock_client
 
         result = await session_manager.add_session("127.0.0.1", 50000)
@@ -570,6 +597,27 @@ class TestAddSession:
 
         with pytest.raises(MayaConnectionError):
             await session_manager.add_session("127.0.0.1", 7001)
+
+    @pytest.mark.asyncio
+    async def test_add_session_bootstrap_failure_disconnects(
+        self, session_manager: SessionManager, mocker
+    ) -> None:
+        """If bootstrap raises, the config client is still disconnected."""
+        config_client = MagicMock(spec=MayaClient)
+        config_client.connect = AsyncMock()
+        config_client.disconnect = AsyncMock()
+        config_client.key = "127.0.0.1:7001"
+        config_client.bootstrap = AsyncMock(side_effect=RuntimeError("boom"))
+
+        mocker.patch(
+            "maya_mcp_server.session_manager.MayaClient", return_value=config_client
+        )
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await session_manager.add_session("127.0.0.1", 7001)
+
+        config_client.disconnect.assert_called_once()
+        assert session_manager.session_count == 0
 
 
 class TestCodedSessionErrors:
@@ -616,3 +664,118 @@ class TestCodedSessionErrors:
             await initialize_session_manager(client_type="bogus")
         assert ei.value.code == "invalid_input"
         assert "[invalid_input]" in str(ei.value)
+
+
+
+# ============================================================================
+# T-05: _failed_ports dedup + localhost-only scan enforcement
+# ============================================================================
+
+
+class TestFailedPortsDedup:
+    """D-013: a config port that fails probing must not be re-probed every
+    scan cycle - failures are deduplicated with a retry cooldown."""
+
+    @pytest.mark.asyncio
+    async def test_failed_port_not_reprobed_within_cooldown(self, mocker) -> None:
+        mgr = SessionManager(
+            scan_interval=10.0, client_type=ClientType.QT, failed_port_retry_after=60.0
+        )
+        mocker.patch(
+            "maya_mcp_server.session_manager.get_maya_listening_ports",
+            return_value=[{"address": "127.0.0.1", "port": 7001, "process_id": 1}],
+        )
+        probe = mocker.patch.object(mgr, "_probe_port", new_callable=AsyncMock, return_value=None)
+
+        await mgr._scan_for_sessions()
+        await mgr._scan_for_sessions()
+        await mgr._scan_for_sessions()
+
+        assert probe.call_count == 1
+        assert "127.0.0.1:7001" in mgr._failed_ports
+
+    @pytest.mark.asyncio
+    async def test_failed_port_retried_after_cooldown(self, mocker) -> None:
+        mgr = SessionManager(
+            scan_interval=10.0, client_type=ClientType.QT, failed_port_retry_after=0.0
+        )
+        mocker.patch(
+            "maya_mcp_server.session_manager.get_maya_listening_ports",
+            return_value=[{"address": "127.0.0.1", "port": 7001, "process_id": 1}],
+        )
+        probe = mocker.patch.object(mgr, "_probe_port", new_callable=AsyncMock, return_value=None)
+
+        await mgr._scan_for_sessions()
+        await mgr._scan_for_sessions()
+
+        assert probe.call_count == 2
+
+    async def test_failed_record_cleared_when_port_gone(self, mocker) -> None:
+        mgr = SessionManager(
+            scan_interval=10.0, client_type=ClientType.QT, failed_port_retry_after=60.0
+        )
+        scans = iter(
+            [
+                [{"address": "127.0.0.1", "port": 7001, "process_id": 1}],
+                [],
+            ]
+        )
+        mocker.patch(
+            "maya_mcp_server.session_manager.get_maya_listening_ports",
+            side_effect=lambda: iter(next(scans)),
+        )
+        mocker.patch.object(mgr, "_probe_port", new_callable=AsyncMock, return_value=None)
+
+        await mgr._scan_for_sessions()
+        assert "127.0.0.1:7001" in mgr._failed_ports
+        await mgr._scan_for_sessions()
+        assert "127.0.0.1:7001" not in mgr._failed_ports
+
+    async def test_successful_probe_clears_failure(self, mocker, mock_client) -> None:
+        mgr = SessionManager(
+            scan_interval=10.0, client_type=ClientType.QT, failed_port_retry_after=0.0
+        )
+        mocker.patch(
+            "maya_mcp_server.session_manager.get_maya_listening_ports",
+            return_value=[{"address": "127.0.0.1", "port": 7001, "process_id": 1}],
+        )
+        probe = mocker.patch.object(
+            mgr, "_probe_port", new_callable=AsyncMock, return_value=None
+        )
+        await mgr._scan_for_sessions()
+        probe.return_value = mock_client
+        await mgr._scan_for_sessions()
+        assert "127.0.0.1:7001" not in mgr._failed_ports
+        assert "127.0.0.1:50000" in mgr._sessions
+
+
+class TestLoopbackScanEnforcement:
+    """D-013: auto-discovery is localhost-only. Non-loopback listener
+    addresses are skipped; unspecified (0.0.0.0/::) normalize to loopback."""
+
+    @pytest.mark.asyncio
+    async def test_scan_skips_non_loopback_address(self, mocker) -> None:
+        mgr = SessionManager()
+        mocker.patch(
+            "maya_mcp_server.session_manager.get_maya_listening_ports",
+            return_value=[{"address": "192.168.1.20", "port": 7001, "process_id": 1}],
+        )
+        probe = mocker.patch.object(mgr, "_probe_port", new_callable=AsyncMock)
+
+        await mgr._scan_for_sessions()
+
+        probe.assert_not_called()
+        assert mgr.session_count == 0
+
+    @pytest.mark.asyncio
+    async def test_scan_normalizes_unspecified_to_loopback(self, mocker) -> None:
+        mgr = SessionManager()
+        mocker.patch(
+            "maya_mcp_server.session_manager.get_maya_listening_ports",
+            return_value=[{"address": "0.0.0.0", "port": 7001, "process_id": 1}],
+        )
+        probe = mocker.patch.object(mgr, "_probe_port", new_callable=AsyncMock, return_value=None)
+
+        await mgr._scan_for_sessions()
+
+        probe.assert_called_once_with("127.0.0.1", 7001)

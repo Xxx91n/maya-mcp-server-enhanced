@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from maya_mcp_server.client import BaseMayaClient, MayaClient, MayaConnectionError
@@ -14,7 +15,7 @@ from maya_mcp_server.types import (
     ClientType,
     SessionInfo,
 )
-from maya_mcp_server.utils import get_maya_listening_ports
+from maya_mcp_server.utils import get_maya_listening_ports, is_loopback_host
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class SessionManager:
         self,
         scan_interval: float = 10.0,
         client_type: ClientType = ClientType.QT,
+        failed_port_retry_after: float = 60.0,
     ):
         """
         Initialize the session manager.
@@ -34,15 +36,20 @@ class SessionManager:
         Args:
             scan_interval: Seconds between background scans
             client_type: Type of client to use for Maya communication
+            failed_port_retry_after: Cooldown before a failed config port is
+                probed again (D-013 _failed_ports dedup)
         """
         self.scan_interval = scan_interval
         self.client_type = client_type
+        self.failed_port_retry_after = failed_port_retry_after
         # key: "host:port" (communication port)
         self._sessions: dict[str, BaseMayaClient] = {}
         # map config key -> session key
         #   we use a "config" command port to bootstrap a dedicated communication port, and only
         #   the latter are considered "sessions"
         self._config_to_session: dict[str, str] = {}
+        # config keys whose last probe failed -> monotonic timestamp (D-013 dedup)
+        self._failed_ports: dict[str, float] = {}
         # session keys with stream capture
         self._stream_capture_installed: set[str] = set()
         self._scan_task: asyncio.Task[None] | None = None
@@ -87,6 +94,7 @@ class SessionManager:
 
         self._sessions.clear()
         self._config_to_session.clear()
+        self._failed_ports.clear()
         self._stream_capture_installed.clear()
         logger.info("Session manager stopped")
 
@@ -117,23 +125,47 @@ class SessionManager:
 
         Only scans configuration ports (outside the communication port range).
         Communication ports are per-client dedicated ports created during bootstrap.
+        localhost-only (D-013): non-loopback listener addresses are skipped;
+        wildcard binds (0.0.0.0/::) normalize to 127.0.0.1. Failed probes are
+        deduplicated via _failed_ports with a retry cooldown.
         """
+        now = time.monotonic()
+        listening_config_keys: set[str] = set()
+
         for port_info in get_maya_listening_ports():
             host = port_info["address"]
             port = port_info["port"]
+
+            # Wildcard listeners are reachable via loopback
+            if host in ("0.0.0.0", "::"):
+                host = "127.0.0.1"
+            elif not is_loopback_host(host):
+                # localhost-only enforcement: a Maya instance bound to a LAN
+                # address is out of scope for the local agent (D-013)
+                logger.debug(f"Skipping non-loopback listener {host}:{port}")
+                continue
+
             config_key = self._session_key(host, port)
 
             # Skip communication ports (dedicated per-client ports)
             if COMMUNICATION_PORT_MIN <= port <= COMMUNICATION_PORT_MAX:
                 continue
 
+            listening_config_keys.add(config_key)
+
             # Skip if we've already used this configuration port to create a session
             if config_key in self._config_to_session:
+                continue
+
+            # Deduplicate failed probes: retry only after the cooldown
+            failed_at = self._failed_ports.get(config_key)
+            if failed_at is not None and (now - failed_at) < self.failed_port_retry_after:
                 continue
 
             # Try to connect to this configuration port
             client = await self._probe_port(host, port)
             if client:
+                self._failed_ports.pop(config_key, None)
                 # Store session by its communication port key
                 self._sessions[client.key] = client
                 # Track which config port created this session
@@ -141,6 +173,13 @@ class SessionManager:
                 logger.info(
                     f"Discovered Maya session at {client.key} (PID {port_info['process_id']})"
                 )
+            else:
+                self._failed_ports[config_key] = now
+
+        # A port that stopped listening resets its failure record so a new
+        # Maya instance on the same port is probed immediately
+        for key in [k for k in self._failed_ports if k not in listening_config_keys]:
+            del self._failed_ports[key]
 
     async def _probe_port(self, host: str, port: int) -> BaseMayaClient | None:
         """
@@ -313,19 +352,34 @@ class SessionManager:
         Raises:
             MayaConnectionError: If connection fails
         """
-        key = self._session_key(host, port)
+        config_key = self._session_key(host, port)
 
-        if key in self._sessions:
-            return self._sessions[key]
+        # Already bootstrapped via this config port -> return its session
+        existing = self._config_to_session.get(config_key)
+        if existing and existing in self._sessions:
+            return self._sessions[existing]
+        # Or the key itself is a live session (communication port)
+        if config_key in self._sessions:
+            return self._sessions[config_key]
 
-        client = MayaClient(host, port)
-        await client.connect()
-        await client.bootstrap()
+        client = MayaClient(host, port, timeout=60.0)
+        try:
+            await client.connect()
+            # bootstrap() returns a NEW client on the dedicated working
+            # channel - that is the session, not the config-port client
+            new_client = await client.bootstrap(client_type=self.client_type.value)
+        finally:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
 
-        self._sessions[key] = client
-        logger.info(f"Added session: {key}")
+        self._sessions[new_client.key] = new_client
+        self._config_to_session[config_key] = new_client.key
+        self._failed_ports.pop(config_key, None)
+        logger.info(f"Added session: {config_key} -> {new_client.key}")
 
-        return client
+        return new_client
 
 
 
@@ -370,26 +424,3 @@ class SessionManager:
             "scan_interval": self.scan_interval,
             "client_type": self.client_type.value,
         }
-
-if __name__ == "__main__":
-    cmd = """
-import maya.cmds
-print('one')
-print('two')
-maya.cmds.ls(cameras=True)
-"""
-
-    async def run() -> None:
-        session_manager = SessionManager()
-        print("starting")
-        await session_manager.start()
-        print("started")
-        result = await session_manager.list_sessions()
-        print(result)
-
-    try:
-        asyncio.run(run())
-    except KeyboardInterrupt:
-        pass
-
-
