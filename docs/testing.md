@@ -43,3 +43,33 @@ import sys; sys.path.insert(0, r"D:\Aworker\maya\maya-mcp-server\src")
 import maya_mcp_server.maya_scene_module as _mcp_scene
 _mcp_scene.get_scene_graph()
 ```
+
+## Tier 3 — visual loop, real Maya GUI (manual checklist)
+
+The stub layer is a contract layer — it deliberately never asserts
+pixels. The following checks require a real Maya GUI session and are
+run by hand (D-027). In Maya's Script Editor:
+
+```python
+import sys; sys.path.insert(0, r"D:\Aworker\maya\maya-mcp-server\src")
+import maya_mcp_server.visual_module as _mcp_visual
+```
+
+- [ ] `viewport_snapshot()` — image orientation is correct (the
+      `verticalFlip()` call is validated here; if output is upside
+      down, remove the flip).
+- [ ] `viewport_snapshot()` — VP2/kFloat path on Maya 2025+ produces a
+      non-black image (official patch).
+- [ ] `viewport_snapshot()` — captured content actually matches the
+      active viewport (HUD/selection visible).
+- [ ] `render_preview()` — playblast artifact is produced and decoded;
+      `width/height` in metadata match reality.
+- [ ] `render_preview(camera="CAM_x")` — panel camera is restored to
+      the prior camera after the call (lookThru restore).
+- [ ] `render_preview()` — current time is unchanged after the call
+      (undo bug #21 restore).
+- [ ] `render_preview()` — the `exists` pre-check on the target
+      camera behaves correctly against real `cmds.objExists`
+      (stub mirrors it; real-Maya acceptance verified here).
+- [ ] Batch/mayapy run — `pytest -m mayapy` covers the
+      `gui_session_required` gate on a real interpreter.

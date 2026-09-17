@@ -51,9 +51,9 @@ problem.
 | Error contract | host failures raise coded exceptions (isError); Maya-domain failures return `{error:{code,message,suggestion?}}` | pipeline.py, maya_scene_module.py |
 | Checkpoint/rollback | exportAll memory snapshots, auto safety snapshot before rollback, S2 rebind | maya_scene_module.py |
 | userSetup.py merge | marker-block upsert, confirm-gated, .bak backup, symmetric uninstall | connection_guide.py |
-| Tool annotations | readOnlyHint/destructiveHint/idempotentHint/openWorldHint on all 18 tools | pipeline.py |
+| Tool annotations | readOnlyHint/destructiveHint/idempotentHint/openWorldHint on all 20 tools | pipeline.py |
 
-All 18 tools pass through one FastMCP middleware pipeline:
+All 20 tools pass through one FastMCP middleware pipeline:
 validate → rate-limit → pattern-scan → dispatch → audit.
 
 ## 4. Port and network exposure
@@ -83,11 +83,15 @@ authoritative and this table must match it row for row:
 
 | Hints | Tools |
 |-------|-------|
-| readOnly=T, destructive=F, idempotent=T | `list_sessions`, `scene_snapshot`, `scene_inspect`, `scene_measure`, `scene_assert`, `scene_validate`, `scene_checkpoint_list`, `scene_aesthetics`, `scene_review` |
+| readOnly=T, destructive=F, idempotent=T | `list_sessions`, `scene_snapshot`, `scene_inspect`, `scene_measure`, `scene_assert`, `scene_validate`, `scene_checkpoint_list`, `scene_aesthetics`, `scene_review`, `scene_viewport_snapshot`, `scene_render_preview` |
 | readOnly=F, destructive=F, idempotent=F | `scene_checkpoint`, `scene_rollback`, `scene_plan`, `camera_create`, `camera_orbit`, `add_session` |
 | readOnly=F, destructive=T, idempotent=F | `execute_code`, `write_module`, `maya_setup_guide` |
 
 - openWorldHint=false everywhere: no tool reaches the open network.
+- `scene_viewport_snapshot` / `scene_render_preview` are readOnly
+  under the net-zero side-effect discipline (camera/current-time
+  restored on every path, D-026) - the visible transient is documented
+  in the tool docstrings.
 - destructive=true is reserved for arbitrary code execution and
   startup-file writes. `scene_rollback` recovers state (not destructive)
   but is not idempotent; `camera_create`/`camera_orbit`/`scene_checkpoint`

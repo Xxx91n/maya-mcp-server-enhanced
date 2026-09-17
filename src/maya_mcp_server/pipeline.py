@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Tool annotations \u2014 the single matrix (D-018). All 18 tools, all four hints.
+# Tool annotations \u2014 the single matrix (D-018). All 20 tools, all four hints.
 # readOnlyHint also drives the read/write rate-limit bucket.
 # ---------------------------------------------------------------------------
 
@@ -54,7 +54,7 @@ _WRITE_DESTRUCTIVE = mt.ToolAnnotations(
 )
 
 TOOL_ANNOTATIONS: dict[str, mt.ToolAnnotations] = {
-    # read-only tools (9)
+    # read-only tools (11)
     "list_sessions": _READ,
     "scene_snapshot": _READ,
     "scene_inspect": _READ,
@@ -64,6 +64,9 @@ TOOL_ANNOTATIONS: dict[str, mt.ToolAnnotations] = {
     "scene_checkpoint_list": _READ,
     "scene_aesthetics": _READ,
     "scene_review": _READ,
+    # visual loop: net-zero side effect discipline makes readOnly honest (D-026)
+    "scene_viewport_snapshot": _READ,
+    "scene_render_preview": _READ,
     # mutation-class tools: scene/filesystem effects, not destructive (6)
     "scene_checkpoint": _WRITE_SAFE,
     "scene_rollback": _WRITE_SAFE,

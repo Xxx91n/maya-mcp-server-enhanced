@@ -232,6 +232,24 @@ class TestPipelineErrorContract:
         err = InputValidationError("bad", suggestion="try X")
         assert "try X" in str(err)
 
+    def test_gui_session_required_error_code(self) -> None:
+        from maya_mcp_server.security import GuiSessionRequiredError
+        err = GuiSessionRequiredError("headless", suggestion="use a GUI session")
+        assert str(err).startswith("[gui_session_required]")
+        assert "use a GUI session" in str(err)
+
+    def test_capture_empty_error_code(self) -> None:
+        from maya_mcp_server.security import CaptureEmptyError
+        err = CaptureEmptyError("no bytes", suggestion="retry with GUI")
+        assert str(err).startswith("[capture_empty]")
+        assert "retry with GUI" in str(err)
+
+    def test_capture_invalid_error_code(self) -> None:
+        from maya_mcp_server.security import InvalidCaptureError
+        err = InvalidCaptureError("not an image", suggestion="check decoder")
+        assert str(err).startswith("[capture_invalid]")
+        assert "check decoder" in str(err)
+
 
 class TestTokenBucket:
     """Real token bucket semantics (D-018)."""

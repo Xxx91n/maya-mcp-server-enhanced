@@ -170,7 +170,9 @@ def upAxis(query=False, axis=False, **kw):
     return _s().up_axis
 
 
-def about(version=False, **kw):
+def about(version=False, batch=False, **kw):
+    if batch or kw.get("b"):
+        return _s().batch
     return "2024.0-stub" if version else "MayaStub"
 
 
@@ -377,3 +379,114 @@ def delete(*args):
 def warning(msg):
     """Maya cmds.warning — surface a non-fatal warning."""
     _s().warnings.append(str(msg))
+
+
+# ---- GUI surface (D-027 stateful-fake; visual tools contract) ----
+
+
+def refresh(**kw):
+    _s().refresh_calls += 1
+
+
+def getPanel(**kw):
+    sc = _s()
+    if kw.get("withFocus") or kw.get("wf"):
+        return sc.focus_panel
+    ptype = kw.get("type")
+    if ptype is not None:
+        names = [n for n, p in sc.panels.items() if p["type"] == ptype]
+        return names or None
+    return list(sc.panels) or None
+
+
+_UI_TYPES = {"modelPanel": "modelEditor"}
+
+
+def objectTypeUI(name, **kw):
+    panel = _s().panels.get(str(name))
+    if panel is None:
+        return None
+    return _UI_TYPES.get(panel["type"], panel["type"])
+
+
+def lsUI(**kw):
+    sc = _s()
+    if kw.get("editors"):
+        names = [n for n, p in sc.panels.items() if p["type"] == "modelPanel"]
+        return names or None
+    if kw.get("panels"):
+        return list(sc.panels) or None
+    return None
+
+
+def modelEditor(*args, **kw):
+    """Panel-registry modelEditor: edit truly mutates, query reads it back."""
+    sc = _s()
+    name = str(args[0]) if args else None
+    if kw.get("exists") or kw.get("ex"):
+        return name in sc.panels
+    panel = sc.panels.get(name)
+    if panel is None:
+        raise RuntimeError("Object not found: " + str(name))
+    if kw.get("query") or kw.get("q"):
+        if kw.get("camera") or kw.get("cam"):
+            return panel["camera"]
+        if kw.get("activeView") or kw.get("av"):
+            return panel["activeView"]
+        if kw.get("withFocus") or kw.get("wf"):
+            return panel["withFocus"]
+        return None
+    if kw.get("edit") or kw.get("e"):
+        if "camera" in kw or "cam" in kw:
+            panel["camera"] = kw.get("camera", kw.get("cam"))
+        if "activeView" in kw or "av" in kw:
+            want = bool(kw.get("activeView", kw.get("av")))
+            for p in sc.panels.values():
+                p["activeView"] = False
+            panel["activeView"] = want
+            if want:
+                sc.focus_panel = name
+        return None
+    return None
+
+
+def lookThru(*args, **kw):
+    """lookThru(editorName, object): point a panel at a camera."""
+    sc = _s()
+    pos = [str(a) for a in args]
+    if len(pos) >= 2:
+        panel_name, cam = pos[0], pos[1]
+    elif len(pos) == 1:
+        panel_name, cam = sc.focus_panel, pos[0]
+    else:
+        panel_name = kw.get("panel", sc.focus_panel)
+        cam = kw.get("camera")
+    if panel_name not in sc.panels:
+        raise RuntimeError("Cannot find panel: " + str(panel_name))
+    sc.resolve(cam)
+    sc.look_thru_calls.append((panel_name, cam))
+    sc.panels[panel_name]["camera"] = cam
+
+
+def playblast(**kw):
+    """Deterministic-image playblast (D-027).
+
+    Writes a real PNG (or a zero-byte artifact when playblast_empty
+    simulates the headless silent-failure quirk). Mirrors the undo
+    bug #21 timeline slam: time jumps to the playback start unless
+    the caller restores it.
+    """
+    sc = _s()
+    sc.playblast_calls.append(dict(kw))
+    sc.current_time = sc.playback_range[0]
+    base = kw.get("completeFilename") or kw.get("filename") or "playblast"
+    path = base if base.endswith(".png") else base + ".png"
+    if sc.playblast_empty:
+        with open(path, "wb"):
+            pass
+        return path
+    from .fakeqt import png_bytes
+    w, h = (kw.get("widthHeight") or [640, 480])[:2]
+    with open(path, "wb") as fh:
+        fh.write(png_bytes(int(w), int(h)))
+    return path

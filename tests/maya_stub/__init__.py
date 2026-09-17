@@ -25,12 +25,18 @@ import sys
 import types
 
 from . import cmds as _cmds
+from . import fakeqt as _fakeqt
 from . import openmaya as _om2
+from . import openmayaui as _omui
 from . import runtime
 from .scene import Scene
 
 
-_MODULES = ("maya.api.OpenMaya", "maya.api", "maya.cmds", "maya")
+_MODULES = (
+    "maya.api.OpenMayaUI", "maya.api.OpenMaya", "maya.api",
+    "maya.cmds", "maya",
+    "PySide6.QtCore", "PySide6.QtGui", "PySide6",
+)
 
 
 def install(scene=None):
@@ -50,14 +56,25 @@ def install(scene=None):
     om = types.ModuleType("maya.api.OpenMaya")
     om.__dict__.update({k: getattr(_om2, k) for k in dir(_om2) if not k.startswith("__")})
 
+    omui = types.ModuleType("maya.api.OpenMayaUI")
+    omui.__dict__.update(
+        {k: getattr(_omui, k) for k in dir(_omui) if not k.startswith("__")}
+    )
+
     maya.cmds = maya_cmds
     maya.api = maya_api
     maya_api.OpenMaya = om
+    maya_api.OpenMayaUI = omui
 
     sys.modules["maya"] = maya
     sys.modules["maya.cmds"] = maya_cmds
     sys.modules["maya.api"] = maya_api
     sys.modules["maya.api.OpenMaya"] = om
+    sys.modules["maya.api.OpenMayaUI"] = omui
+    pyside = _fakeqt.make_pyside6()
+    sys.modules["PySide6"] = pyside
+    sys.modules["PySide6.QtCore"] = pyside.QtCore
+    sys.modules["PySide6.QtGui"] = pyside.QtGui
     return sc
 
 
@@ -74,4 +91,14 @@ def load_scene_module():
     return msm
 
 
-__all__ = ["Scene", "install", "uninstall", "load_scene_module", "runtime"]
+def load_visual_module():
+    """Import visual_module fresh, bound to the installed stub."""
+    sys.modules.pop("maya_mcp_server.visual_module", None)
+    import maya_mcp_server.visual_module as vm
+    return vm
+
+
+__all__ = [
+    "Scene", "install", "uninstall", "load_scene_module",
+    "load_visual_module", "runtime",
+]

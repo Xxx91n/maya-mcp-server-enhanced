@@ -23,6 +23,7 @@
 | 🧠 **大局观统筹** | scene_plan | 场景组织健康检查、区域平衡分析、布局优化建议、冲突预防、自然语言规划 |
 | 📋 **工程审核** | `scene_review` `scene_validate` | 11 维度审核（0-100 分）：空间/重叠/区域/审美5维/约束/孤儿/命名/组件化/冲突/光照质量/场景组织 |
 | ⚡ **代码执行** | `execute_code` `write_module` | 在 Maya 中执行任意 Python 代码 |
+| 👁️ **视觉闭环** | `scene_viewport_snapshot` `scene_render_preview` | 视口所见即所得捕获 + 单帧 playblast 预览（仅 GUI 会话；ICEV VERIFY 视觉确认） |
 
 ## 快速开始
 
@@ -176,6 +177,19 @@ scene_checkpoint_list()
 scene_rollback(filename="cp_before_renovation.ma")
 ```
 
+### 视觉闭环（仅 GUI 会话）
+
+```python
+# 视口所见即所得截图（含 HUD/选中高亮——验证用户正看到什么）
+scene_viewport_snapshot(max_size=800, format="jpeg")
+
+# 单帧 playblast 预览（干净无 HUD；可指定相机，width/height 服务端向上取整 /4）
+scene_render_preview(camera="CAM_hero", width=640, height=360)
+
+# 两工具返回 [图片, JSON 元数据]；headless 会话返回 gui_session_required 错误
+# wireframe/线稿审查建议 format="png"；实际尺寸以返回元数据为准
+```
+
 ## CoS 符号化格式
 
 默认输出使用 **Chain-of-Symbol** 格式，比 JSON 节省 **65% token**：
@@ -208,17 +222,18 @@ entrance (6obj) @(157.3,162.6,-111.6)
 │  scene_snapshot() → 完整空间模型          │
 │  scene_review() → 9维度审核评分           │
 └──────────┬───────────────────────────────┘
-           │ 18 个 MCP 工具
+           │ 20 个 MCP 工具
 ┌──────────▼───────────────────────────────┐
 │        MCP Server Layer                   │
 │  scene_tools.py  → 工具定义               │
+│  visual_tools.py → 视觉闭环（仅 GUI）      │
 │  scene_cache.py  → TTL 缓存 + 脏检测      │
 │  cos_formatter.py → CoS 符号化（省65%）    │
 │  security.py     → 输入验证 + 速率限制     │
 └──────────┬───────────────────────────────┘
            │ execute_code("import _mcp_scene; ...")
 ┌──────────▼───────────────────────────────┐
-│        Maya 端 (_mcp_scene 模块)           │
+│        Maya 端 (_mcp_scene / _mcp_visual)  │
 │  get_scene_graph() → 层级 + BBox + 变换   │
 │  get_spatial_index() → 空间索引 + 邻居     │
 │  scene_review() → 9维度审核引擎            │

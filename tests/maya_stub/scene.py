@@ -74,6 +74,35 @@ class Scene:
         self.deleted = []
         self.workspace_dir = ""   # cmds.workspace(q, rootDirectory)
 
+        # ---- GUI surface (D-027 stateful-fake; visual tools contract) ----
+        self.gui = True             # modelPanel-based session (batch=False GUI)
+        self.batch = False          # cmds.about(batch=True)
+        self.panels = {}            # name -> {type,camera,activeView,withFocus,width,height}
+        self.focus_panel = None     # getPanel(withFocus=True)
+        self.viewport_size = (1280, 720)  # M3dView.portWidth/portHeight
+        self.look_thru_calls = []   # (panel, camera) lookThru invocations
+        self.playblast_calls = []   # recorded playblast kwargs
+        self.playblast_empty = False  # headless quirk: silent zero-byte artifact
+        self.refresh_calls = 0      # cmds.refresh invocations
+
+    def setup_gui(self):
+        """Seed a stock GUI layout: four model panels + default cameras.
+
+        Opt-in (tests call it explicitly) so legacy scenes without a
+        GUI surface keep their zero-panel, headless-ish shape.
+        """
+        for i, cam in enumerate(("persp", "top", "front", "side"), start=1):
+            self.add_camera(cam)
+            self.panels["modelPanel" + str(i)] = {
+                "type": "modelPanel",
+                "camera": cam,
+                "activeView": i == 1,
+                "withFocus": i == 1,
+                "width": self.viewport_size[0],
+                "height": self.viewport_size[1],
+            }
+        self.focus_panel = "modelPanel1"
+
     # ---- construction helpers (test-facing API) ----
 
     def _unique_name(self, name):

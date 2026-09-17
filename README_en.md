@@ -23,6 +23,7 @@ English | [中文](README.md)
 | 🧠 **Scene Planning** | scene_plan | Holistic organization health, zone balance, layout optimization, conflict prevention, NL planning |
 | 📋 **Engineering Audit** | `scene_review` `scene_validate` | 11-dimension audit (0-100 score): spatial/overlaps/zones/5D-aesthetics/constraints/orphans/naming/componentization/conflicts/lighting/organization |
 | ⚡ **Code Execution** | `execute_code` `write_module` | Execute arbitrary Python code in Maya |
+| 👁️ **Visual Loop** | `scene_viewport_snapshot` `scene_render_preview` | WYSIWYG viewport capture + single-frame playblast preview (GUI sessions only; visual VERIFY for ICEV) |
 
 ## Quick Start
 
@@ -112,6 +113,19 @@ scene_rollback(filename="cp_before_change.ma")  # auto safety snapshot, rebinds 
 # self-contained snapshots: references are flattened (no write-back); assumes one scene file per session
 ```
 
+### Visual Loop (GUI sessions only)
+
+```python
+# WYSIWYG viewport capture (HUD/selection included — verify what the artist sees)
+scene_viewport_snapshot(max_size=800, format="jpeg")
+
+# Clean single-frame playblast (optional camera; width/height rounded up to /4 server-side)
+scene_render_preview(camera="CAM_hero", width=640, height=360)
+
+# Both return [image, JSON metadata]; headless sessions get gui_session_required
+# prefer format="png" for wireframe/line-art review; trust returned metadata for actual size
+```
+
 ## CoS Format
 
 Default output uses **Chain-of-Symbol** notation, saving **65% tokens** vs JSON:
@@ -141,17 +155,18 @@ shell (23obj) @(-11.8,178.8,145.7)
 │  scene_snapshot() → complete spatial model│
 │  scene_review() → 9-dimension audit score│
 └──────────┬───────────────────────────────┘
-           │ 18 MCP tools
+           │ 20 MCP tools
 ┌──────────▼───────────────────────────────┐
 │        MCP Server Layer                   │
 │  scene_tools.py  → tool definitions       │
+│  visual_tools.py → visual loop (GUI only) │
 │  scene_cache.py  → TTL cache + dirty flag │
 │  cos_formatter.py → CoS notation (-65%)   │
 │  security.py     → validation + rate limit│
 └──────────┬───────────────────────────────┘
            │ execute_code("import _mcp_scene; ...")
 ┌──────────▼───────────────────────────────┐
-│        Maya Side (_mcp_scene module)      │
+│        Maya Side (_mcp_scene/_mcp_visual) │
 │  get_scene_graph() → hierarchy + BBox     │
 │  get_spatial_index() → spatial index      │
 │  scene_review() → 9-dimension audit       │

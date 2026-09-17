@@ -1,6 +1,6 @@
 """Security pipeline primitives for maya-mcp-server.
 
-All 18 MCP tools funnel through the SecurityPipeline middleware
+All 20 MCP tools funnel through the SecurityPipeline middleware
 (pipeline.py): input validation -> rate limit -> pattern scan ->
 dispatch -> audit. This module is a safety net for confused-deputy
 scenarios, NOT a security boundary (see SECURITY.md).
@@ -98,6 +98,34 @@ class ServerNotReadyError(PipelineError):
     """Raised when a host-side service is used before initialization."""
 
     code = "server_not_started"
+
+
+class GuiSessionRequiredError(PipelineError):
+    """Raised when a GUI-only tool is called on a headless session.
+
+    Host-side gate of the double headless check (D-024/D-025): the
+    framed_channel short-circuit raises this before any round trip.
+    The Maya-side layer returns the same code as a domain error.
+    """
+
+    code = "gui_session_required"
+
+
+class CaptureEmptyError(PipelineError):
+    """Raised when a visual capture produces a zero-byte artifact.
+
+    Hard server-side check (D-025): headless playblast empirically
+    writes empty files without erroring - never pass that through as
+    success.
+    """
+
+    code = "capture_empty"
+
+
+class InvalidCaptureError(PipelineError):
+    """Raised when a capture payload fails integrity checks."""
+
+    code = "capture_invalid"
 
 
 # ---------------------------------------------------------------------------

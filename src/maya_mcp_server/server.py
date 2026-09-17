@@ -29,6 +29,7 @@ from maya_mcp_server.security import (
 from maya_mcp_server.session_manager import SessionManager
 from maya_mcp_server.types import ClientType, OutputBuffer, ResultType, SessionInfo
 from maya_mcp_server.utils import is_loopback_host
+from maya_mcp_server.visual_tools import register_visual_tools
 
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,8 @@ mcp = FastMCP(
         "1. INSPECT: scene_snapshot() for spatial overview\n"
         "2. COMPUTE: Use spatial data to plan changes\n"
         "3. EXECUTE: execute_code() to apply changes\n"
-        "4. VERIFY: scene_assert() to confirm results\n\n"
+        "4. VERIFY: scene_assert() to confirm results;\n"
+        "   scene_viewport_snapshot() for visual confirmation (GUI)\n\n"
         "## Scene Tools\n"
         "- scene_snapshot: Full scene spatial overview\n"
         "- scene_inspect: Deep inspection of object/zone\n"
@@ -65,6 +67,11 @@ mcp = FastMCP(
         "## Camera & Shot Tools\n"
         "- camera_create: Create camera with shot type (wide/medium/close/etc)\n"
         "- camera_orbit: Create orbiting camera with animation\n\n"
+        "## Visual Loop (GUI sessions only)\n"
+        "- scene_viewport_snapshot: WYSIWYG viewport capture\n"
+        "  (HUD/selection included - what the artist sees)\n"
+        "- scene_render_preview: clean single-frame playblast\n"
+        "  (camera optional; net-zero side effect)\n\n"
         "## Aesthetic Analysis (5 Professional Dimensions)\n"
         "- scene_aesthetics: Professional-grade analysis with 5 dimensions:\n"
         "  1. Color Theory: 60-30-10 rule, temperature, harmony, saturation, contrast\n"
@@ -98,6 +105,7 @@ mcp = FastMCP(
 
 # Register scene tools on the MCP instance
 register_scene_tools(mcp)
+register_visual_tools(mcp)
 
 # Unified security pipeline: every tool call passes through validation,
 # rate limiting, pattern scanning, and audit logging (D-018/ADR-0005).

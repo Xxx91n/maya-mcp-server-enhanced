@@ -64,7 +64,7 @@ def _read_events(path: Path) -> list[dict]:
 
 
 class TestToolAnnotations:
-    """All 18 tools carry the four hints (D-018/ADR-0005 matrix)."""
+    """All 20 tools carry the four hints (D-018/ADR-0005 matrix)."""
 
     EXPECTED = {
         "list_sessions", "maya_setup_guide", "write_module", "execute_code",
@@ -72,9 +72,10 @@ class TestToolAnnotations:
         "scene_assert", "scene_validate", "scene_checkpoint", "scene_rollback",
         "scene_checkpoint_list", "camera_create", "camera_orbit",
         "scene_aesthetics", "scene_review", "scene_plan",
+        "scene_viewport_snapshot", "scene_render_preview",
     }
 
-    def test_all_18_tools_covered(self):
+    def test_all_20_tools_covered(self):
         assert set(TOOL_ANNOTATIONS) == self.EXPECTED
 
     def test_four_hints_all_set(self):
@@ -94,6 +95,7 @@ class TestToolAnnotations:
             "list_sessions", "scene_snapshot", "scene_inspect",
             "scene_measure", "scene_assert", "scene_validate",
             "scene_checkpoint_list", "scene_aesthetics", "scene_review",
+            "scene_viewport_snapshot", "scene_render_preview",
         ):
             assert TOOL_ANNOTATIONS[name].readOnlyHint is True, name
             assert TOOL_ANNOTATIONS[name].idempotentHint is True, name

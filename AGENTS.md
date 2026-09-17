@@ -14,13 +14,15 @@ src/maya_mcp_server/
 ├── maya_mcp_helper.py     # Maya-side helper (executed inside Maya)
 ├── maya_bootstrap.py      # Maya bootstrap code (create_module)
 ├── scene_tools.py         # 13 MCP scene tool definitions
+├── visual_tools.py        # 2 GUI-only visual tools (D-023..D-026)
 ├── scene_cache.py         # TTL + dirty-detection cache
 ├── cos_formatter.py       # Chain-of-Symbol notation formatter
 ├── maya_scene_module.py   # Maya-side module (injected via write_module)
+├── visual_module.py       # Maya-side _mcp_visual (lazy inject, GUI only)
 ├── spatial_types.py       # Data type definitions
 ├── connection_guide.py    # Connection bootstrap; userSetup.py managed marker-block (D-017)
 ├── security.py            # Validation, token-bucket rate limits, pattern scan, JSONL audit
-├── pipeline.py            # FastMCP middleware: all 18 tools -> validate/rate-limit/scan/audit
+├── pipeline.py            # FastMCP middleware: all 20 tools -> validate/rate-limit/scan/audit
 ├── types.py               # Core types (ResultType, ClientType, SessionInfo)
 ├── bootstrap.py           # Server bootstrap
 ├── utils.py               # Utility functions (cross-platform process detection)
@@ -42,6 +44,7 @@ tests/
 ├── test_scene_cache.py
 ├── test_scene_tools.py
 ├── test_scene_tools_json.py     # tool-layer JSON arg passing + error passthrough
+├── test_visual_tools.py         # T-08 visual loop contract tests (D-023..D-027)
 ├── test_security.py
 └── test_session_manager.py
 ```
@@ -155,6 +158,8 @@ Failure to update dependent files will cause integration failures.
 | `maya_scene_module.py` (lighting functions) | `scene_tools.py`, `tests/test_aesthetic_engine.py` | Lighting data fields must match tool expectations |
 | `maya_scene_module.py` (scene_review) | `scene_tools.py` (scene_review docstring), `server.py` (instructions) | Review check names must match tool args; instructions must list all checks |
 | `maya_scene_module.py` (new function) | `scene_tools.py` (new tool), `server.py` (instructions), `README.md`, `README_en.md`, `tests/` | Every new Maya function needs a corresponding MCP tool, docs, and tests |
+| `visual_module.py` (capture paths) | `visual_tools.py`, `server.py` (instructions), `docs/adr/0013-visual-loop-architecture.md`, `tests/test_visual_tools.py` | Capture contract, annotations, and ADR must stay in sync |
+| `visual_tools.py` (tool surface) | `pipeline.py` (TOOL_ANNOTATIONS), `server.py` (instructions), `docs/threat-model.md` (§5 matrix), `README.md`, `README_en.md` | Tool surface changes require annotation + docs sync |
 | `scene_tools.py` (new tool) | `server.py` (instructions), `README.md`, `README_en.md`, `AGENTS.md` | Tool surface changes require documentation sync |
 | `aesthetic_engine.py` | `maya_scene_module.py` (mirror functions), `tests/test_aesthetic_engine.py` | Standalone engine must match Maya-side implementation |
 | `scene_cache.py` | `scene_tools.py` (cache invalidation), `session_manager.py` (mark_dirty) | Cache behavior must be consistent |

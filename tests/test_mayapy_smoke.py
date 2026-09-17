@@ -85,3 +85,17 @@ def test_checkpoint_rollback_reference_edit_roundtrip(real_maya, tmp_path):
     # flattened reference content must survive the roundtrip
     survivors = cmds.ls("*GEO_ref_cube*") or []
     assert survivors, "referenced node content lost after rollback"
+
+
+def test_visual_module_batch_gate_in_real_maya(real_maya):
+    """D-024/D-025: mayapy is batch mode — the module must import cleanly
+    inside a real interpreter and return the gui_session_required domain
+    error rather than exploding on missing GUI deps.
+    """
+    import maya_mcp_server.visual_module as vm
+
+    for fn in (vm.viewport_snapshot, vm.render_preview):
+        res = fn()
+        assert "error" in res, res
+        assert res["error"]["code"] == "gui_session_required", res
+        assert "suggestion" in res["error"]
