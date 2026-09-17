@@ -194,9 +194,10 @@ def _block_region(lines: list[str]) -> tuple[int, int] | None:
     """
     start = end = -1
     for i, line in enumerate(lines):
-        if MARKER_BEGIN in line and start < 0:
+        stripped = line.strip()
+        if stripped == MARKER_BEGIN and start < 0:
             start = i
-        elif MARKER_END in line and start >= 0:
+        elif stripped == MARKER_END and start >= 0:
             end = i
             break
     if start < 0:
@@ -426,14 +427,12 @@ def install_user_setup(
 
 
 def uninstall_user_setup(
-    port: int = DEFAULT_COMMAND_PORT,
     target_version: str | None = None,
     remove_empty_file: bool = False,
 ) -> dict[str, Any]:
     """Strip the managed marker block from userSetup.py (D-017).
 
     Args:
-        port: Command port number (kept for API symmetry).
         target_version: Specific Maya version; None targets all.
         remove_empty_file: When the file contains ONLY the marker block,
             delete it. Otherwise the emptied file is left in place and

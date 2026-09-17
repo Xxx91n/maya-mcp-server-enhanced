@@ -26,6 +26,7 @@ from maya_mcp_server.security import (
     PatternBlockedError,
     RateLimitExceededError,
     SecurityConfig,
+    SessionLookupError,
 )
 
 
@@ -382,7 +383,7 @@ class TestAuditJsonlContract:
             audit.record({"event_id": "2"})  # must not raise
         finally:
             os.chmod(log, stat.S_IWRITE)
-        assert audit._disabled is True
+        assert audit._warned is True  # warn-once flag set, no permanent latch
 
     def test_input_summary_no_raw_code(self, tmp_path):
         """input_summary must not carry full code/credentials (D-018)."""
@@ -402,3 +403,55 @@ class TestAuditJsonlContract:
         assert "1650B" in ev["input_summary"]
         assert ev["input_summary"].count("os.system") == 1
 
+
+
+class _ExplodingSessionContext:
+    """fastmcp_context stand-in: its session_id property raises RuntimeError,
+    matching real Context.session_id behavior without a request context."""
+
+    @property
+    def session_id(self):
+        raise RuntimeError("request context is not set")
+
+
+async def test_session_resolution_failure_still_audited(tmp_path):
+    """F-3: session-id resolution runs inside the pipeline try; a failing
+    Context.session_id falls back to '_default' and the call is audited."""
+    pipe, _audit, log_path = _pipeline(tmp_path)
+    ctx = MiddlewareContext(
+        message=CallToolRequestParams(name="list_sessions", arguments={}),
+        method="tools/call",
+        fastmcp_context=_ExplodingSessionContext(),
+    )
+    await pipe.on_call_tool(ctx, _ok_next)
+    events = [
+        json.loads(line)
+        for line in log_path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert len(events) == 1
+    assert events[0]["session_id"] == "_default"
+    assert events[0]["outcome"] == "success"
+
+
+async def test_in_tool_pipeline_error_counts_as_error(tmp_path):
+    """Coded errors raised inside the tool body are outcome='error';
+    'rejected' is reserved for pipeline denials (pre-dispatch)."""
+
+    async def _no_session(context):
+        raise SessionLookupError(
+            "No Maya sessions available",
+            suggestion="call add_session(host, port) first",
+        )
+
+    pipe, _audit, log_path = _pipeline(tmp_path)
+    with pytest.raises(SessionLookupError) as ei:
+        await pipe.on_call_tool(_ctx("scene_snapshot"), _no_session)
+    assert "[session_unavailable]" in str(ei.value)
+    assert "call add_session" in str(ei.value)
+    events = [
+        json.loads(line)
+        for line in log_path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert events[-1]["outcome"] == "error"

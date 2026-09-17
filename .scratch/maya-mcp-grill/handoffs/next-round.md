@@ -1,4 +1,4 @@
-> **Round status (2026-09-17)**: T-04 已落地 — branch __BT__fix/t04-security-pipeline__BT__ commit __BT__ovz__BT__, 443+3skip tests green, ruff src=175/repo=238, mypy=221, wheel+stdio+audit verified. Report: .scratch/maya-mcp-grill/reports/2026-09-17-t04-implementation.md. Next: **T-05** (Qt 连接层重写, D-013/D-014, ADR-0010).
+> **Round status (2026-09-17, post-audit repair)**: T-04 实现+返修完成 — branch `fix/t04-security-pipeline` (ovz + qtv + 返修提交), 457+3skip tests green, ruff src=174/repo=237, mypy=221, wheel+stdio+audit verified. 审计报告 reports/2026-09-17-audit-t04.md 打回项 F-1~F-10 已全部修复并复验；待复审确认。实现报告 reports/2026-09-17-t04-implementation.md（含返修小节）。Next: **T-05** (Qt 连接层重写, D-013/D-014, ADR-0010).
 
 # Handoff — maya-mcp-grill 下一轮任务书（rev5）
 

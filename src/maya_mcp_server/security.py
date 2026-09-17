@@ -88,6 +88,18 @@ class PatternBlockedError(PipelineError):
     code = "blocked_pattern"
 
 
+class SessionLookupError(PipelineError):
+    """Raised when a call needs a Maya session but none can be resolved."""
+
+    code = "session_unavailable"
+
+
+class ServerNotReadyError(PipelineError):
+    """Raised when a host-side service is used before initialization."""
+
+    code = "server_not_started"
+
+
 # ---------------------------------------------------------------------------
 # Input validation
 # ---------------------------------------------------------------------------
@@ -193,7 +205,7 @@ class TokenBucket:
     def __post_init__(self) -> None:
         self.tokens = float(self.capacity)
 
-    def _refill(self) -> None:
+    def refill(self) -> None:
         now = time.monotonic()
         self.tokens = min(
             self.capacity, self.tokens + (now - self.updated) * self.refill_per_sec
@@ -202,7 +214,7 @@ class TokenBucket:
 
     def take(self, n: float = 1.0) -> bool:
         """Consume n tokens if available."""
-        self._refill()
+        self.refill()
         if self.tokens >= n:
             self.tokens -= n
             return True
@@ -210,7 +222,7 @@ class TokenBucket:
 
     def retry_after(self) -> float:
         """Seconds until one more token is available."""
-        self._refill()
+        self.refill()
         if self.tokens >= 1.0:
             return 0.0
         if self.refill_per_sec <= 0:
@@ -236,11 +248,11 @@ class RateLimiter:
             self._buckets[session_key] = bucket
         return bucket
 
-    def check(self, session_key: str) -> bool:
-        """Check if a call is allowed for the given session.
+    def try_consume(self, session_key: str) -> bool:
+        """Consume one token for the session.
 
         Returns:
-            True if allowed, False if rate limited
+            True if a token was consumed, False if the bucket is empty
         """
         allowed = self._bucket(session_key).take()
         if not allowed:
@@ -257,7 +269,7 @@ class RateLimiter:
     def get_remaining(self, session_key: str) -> int:
         """Remaining calls available right now."""
         bucket = self._bucket(session_key)
-        bucket._refill()
+        bucket.refill()
         return max(0, int(bucket.tokens))
 
 
@@ -292,7 +304,6 @@ class PatternRule:
 
 
 # Broad warn-only rules: recorded to the audit log, never block (D-018).
-_WARN: frozenset[str] = frozenset()  # sentinel: all string params
 PATTERN_RULES: list[PatternRule] = [
     # --- precise block rules (zero-false-positive class) ---
     PatternRule(
@@ -318,7 +329,7 @@ PATTERN_RULES: list[PatternRule] = [
     ),
     PatternRule(
         "file-traversal",
-        re.compile(r"\.\."),
+        re.compile(r"\.\.[\\/]"),
         "path traversal sequence",
         action="block",
         param_kinds=frozenset({"filename"}),
@@ -520,12 +531,16 @@ class AuditLogger:
         self.path = path if path is not None else default_audit_log_path()
         self.max_bytes = max_bytes
         self.backup_count = backup_count
-        self._disabled = False
+        self._warned = False
 
     def record(self, event: dict[str, Any]) -> None:
-        """Write one audit event; never raises."""
-        if self._disabled:
-            return
+        """Write one audit event; never raises.
+
+        The event is always dual-written to the application logger, even
+        when the JSONL write fails. A failed JSONL write warns once per
+        failure streak (reset on the next success) rather than latching
+        the whole sink off permanently.
+        """
         try:
             line = json.dumps(event, ensure_ascii=False, default=str)
         except Exception as e:
@@ -533,13 +548,13 @@ class AuditLogger:
             return
         try:
             self._append(line)
+            self._warned = False
         except Exception as e:
-            self._disabled = True
-            logger.warning(
-                f"audit log write failed ({self.path}): {e} \u2014 "
-                "audit disabled for this process"
-            )
-            return
+            if not self._warned:
+                logger.warning(
+                    f"audit log write failed ({self.path}): {e}"
+                )
+                self._warned = True
         # Dual-write to the application logger (independent of the JSONL file)
         logger.info("audit %s", line)
 
@@ -552,10 +567,12 @@ class AuditLogger:
             self._rotate()
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         try:
-            with os.fdopen(fd, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
-        finally:
-            pass
+            f = os.fdopen(fd, "a", encoding="utf-8")
+        except Exception:
+            os.close(fd)
+            raise
+        with f:
+            f.write(line + "\n")
         try:
             os.chmod(self.path, 0o600)
         except OSError:
@@ -606,7 +623,6 @@ class SecurityConfig:
     allow_remote_connections: bool = False
     rate_limit_enabled: bool = True
     rate_limit_window: float = RATE_LIMIT_WINDOW
-    rate_limit_max_calls: int = RATE_LIMIT_READ_MAX_CALLS  # legacy alias
     rate_limit_read_max_calls: int = RATE_LIMIT_READ_MAX_CALLS
     rate_limit_write_max_calls: int = RATE_LIMIT_WRITE_MAX_CALLS
     audit_enabled: bool = True

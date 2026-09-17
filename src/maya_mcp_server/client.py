@@ -16,7 +16,11 @@ from maya_mcp_server.bootstrap import (
     get_bootstrap_code,
     get_helper_module_code,
 )
-from maya_mcp_server.security import PipelineError, sanitize_error_message
+from maya_mcp_server.security import (
+    InputValidationError,
+    PipelineError,
+    sanitize_error_message,
+)
 from maya_mcp_server.types import (
     COMMUNICATION_PORT_MAX,
     COMMUNICATION_PORT_MIN,
@@ -577,7 +581,9 @@ class MayaClient(BaseMayaClient):
                 host=self.host, port=new_port, timeout=self.timeout, buffer_size=self.buffer_size
             )
         else:
-            raise TypeError(client_type)
+            raise InputValidationError(
+                f"Unknown client_type {client_type!r}"
+            )
         # Connect to the new dedicated port
         await new_client.connect()
         logger.info(f"Connected to dedicated port {new_port}")

@@ -19,7 +19,9 @@ from maya_mcp_server.pipeline import TOOL_ANNOTATIONS, SecurityPipeline
 from maya_mcp_server.scene_tools import mark_dirty, register_scene_tools
 from maya_mcp_server.security import (
     InputValidationError,
+    PipelineError,
     SecurityConfig,
+    ServerNotReadyError,
     sanitize_error_message,
     validate_module_name,
     validate_session_key,
@@ -84,7 +86,8 @@ mcp = FastMCP(
         "Best practices:\n"
         "- Call scene_snapshot() before modifications\n"
         "- Use scene_checkpoint() before risky operations\n"
-        "- Snapshots carry no undo history; after scene_rollback call scene_snapshot to rebuild context\n"
+        "- Snapshots carry no undo history; after scene_rollback call "
+        "scene_snapshot to rebuild context\n"
         "- Snapshots are self-contained (references flattened, no write-back)\n"
         "  one scene file per session assumed\n"
         "- Use scene_validate() to check constraints after changes\n"
@@ -106,7 +109,10 @@ _session_manager: SessionManager | None = None
 def get_session_manager() -> SessionManager:
     """Get the global session manager."""
     if _session_manager is None:
-        raise RuntimeError("Session manager not initialized. Server not started.")
+        raise ServerNotReadyError(
+            "Session manager not initialized",
+            suggestion="the server has not finished startup; retry after lifespan init",
+        )
     return _session_manager
 
 
@@ -150,6 +156,7 @@ async def maya_setup_guide(
     target_version: str | None = None,
     confirm: bool = False,
     remove_empty_file: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """
     Maya connection setup guide and diagnostics.
@@ -171,6 +178,8 @@ async def maya_setup_guide(
             If None, targets all detected versions.
         confirm: Required to write into an existing userSetup.py that has
             no mcp-for-maya marker block (first install call is dry-run).
+        dry_run: Preview the install: return the proposed block without
+            writing anything.
         remove_empty_file: On uninstall, delete the file when it only
             contained the marker block.
 
@@ -187,7 +196,10 @@ async def maya_setup_guide(
         return get_connection_diagnostics(port)
     elif action == "install":
         return install_user_setup(
-            port=port, target_version=target_version, confirm=confirm
+            port=port,
+            target_version=target_version,
+            dry_run=dry_run,
+            confirm=confirm,
         )
     elif action == "guide":
         return {
@@ -197,7 +209,6 @@ async def maya_setup_guide(
         }
     elif action == "uninstall":
         return uninstall_user_setup(
-            port=port,
             target_version=target_version,
             remove_empty_file=remove_empty_file,
         )
@@ -300,6 +311,10 @@ async def execute_code(
         # Sanitize error messages to avoid leaking internal paths.
         # Coded exceptions keep their [code] prefix via .message.
         raw = getattr(e, "message", str(e))
+        if isinstance(e, PipelineError):
+            raise type(e)(
+                sanitize_error_message(raw), suggestion=e.suggestion
+            ) from e
         raise type(e)(sanitize_error_message(raw)) from e
 
     # Fetch any buffered output and store it in the client
@@ -416,9 +431,16 @@ async def initialize_session_manager(
     """
     global _session_manager
 
+    try:
+        resolved_type = ClientType(client_type)
+    except ValueError:
+        raise InputValidationError(
+            f"Invalid client_type {client_type!r}: must be one of "
+            f"{[t.value for t in ClientType]}"
+        )
     _session_manager = SessionManager(
         scan_interval=scan_interval,
-        client_type=ClientType(client_type),
+        client_type=resolved_type,
     )
     await _session_manager.start()
 

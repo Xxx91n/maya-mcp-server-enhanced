@@ -159,7 +159,7 @@ Failure to update dependent files will cause integration failures.
 | `scene_cache.py` | `scene_tools.py` (cache invalidation), `session_manager.py` (mark_dirty) | Cache behavior must be consistent |
 | `security.py` | `pipeline.py` (enforcement point), `tests/test_security.py`, `tests/test_pipeline.py` | Security rules enforced by the middleware pipeline, not per-tool |
 | `pipeline.py` | `server.py` (middleware registration + annotations), `scene_tools.py` (annotations), `docs/threat-model.md` | Pipeline/threat-model must stay in sync |
-| `connection_guide.py` | `server.py` (maya_setup_guide params), `tests/test_connection_guide.py` | Marker-block semantics + confirm/remove_empty_file flags | |
+| `connection_guide.py` | `server.py` (maya_setup_guide params), `tests/test_connection_guide.py` | Marker-block semantics + confirm/dry_run/remove_empty_file flags |
 | `cos_formatter.py` | `scene_tools.py` (COS format output) | Formatter changes affect all tool COS outputs |
 
 ### Aesthetic Module Change Checklist

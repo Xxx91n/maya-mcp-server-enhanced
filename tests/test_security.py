@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from maya_mcp_server.security import (
+    AuditLogger,
     InputValidationError,
     RateLimiter,
     SecurityConfig,
     compute_code_hash,
     sanitize_error_message,
     scan_for_dangerous_patterns,
+    scan_tool_params,
     validate_code_size,
     validate_module_name,
     validate_session_key,
@@ -175,29 +179,29 @@ class TestRateLimiter:
         """Test that calls within limit are allowed."""
         limiter = RateLimiter(max_calls=5, window=60.0)
         for _ in range(5):
-            assert limiter.check("session1") is True
+            assert limiter.try_consume("session1") is True
 
     def test_blocks_over_limit(self) -> None:
         """Test that calls over limit are blocked."""
         limiter = RateLimiter(max_calls=3, window=60.0)
         for _ in range(3):
-            assert limiter.check("session1") is True
-        assert limiter.check("session1") is False
+            assert limiter.try_consume("session1") is True
+        assert limiter.try_consume("session1") is False
 
     def test_separate_sessions(self) -> None:
         """Test that different sessions have separate limits."""
         limiter = RateLimiter(max_calls=2, window=60.0)
-        assert limiter.check("session1") is True
-        assert limiter.check("session1") is True
-        assert limiter.check("session1") is False
+        assert limiter.try_consume("session1") is True
+        assert limiter.try_consume("session1") is True
+        assert limiter.try_consume("session1") is False
         # Different session should still be allowed
-        assert limiter.check("session2") is True
+        assert limiter.try_consume("session2") is True
 
     def test_get_remaining(self) -> None:
         """Test remaining count."""
         limiter = RateLimiter(max_calls=5, window=60.0)
         assert limiter.get_remaining("session1") == 5
-        limiter.check("session1")
+        limiter.try_consume("session1")
         assert limiter.get_remaining("session1") == 4
 
 # ------------------------------------------------------------
@@ -262,13 +266,13 @@ class TestRateLimiterBuckets:
 
     def test_burst_then_wait(self) -> None:
         limiter = RateLimiter(max_calls=2, window=60.0)
-        assert limiter.check("s") is True
-        assert limiter.check("s") is True
-        assert limiter.check("s") is False
+        assert limiter.try_consume("s") is True
+        assert limiter.try_consume("s") is True
+        assert limiter.try_consume("s") is False
 
     def test_retry_after_reported(self) -> None:
         limiter = RateLimiter(max_calls=1, window=60.0)
-        limiter.check("s")
+        limiter.try_consume("s")
         assert limiter.retry_after("s") > 0
 
 
@@ -379,7 +383,7 @@ class TestAuditLogger:
         blocker.write_text("x")  # a FILE where a dir is needed -> mkdir fails
         audit.path = blocker / "audit.jsonl"
         audit.record({"a": 1})  # must not raise
-        assert audit._disabled is True
+        assert audit._warned is True  # failure streak started, not latched
 
     def test_posix_0600(self, tmp_path) -> None:
         import os
@@ -408,3 +412,61 @@ class TestSanitizeErrorMessagePaths:
         out = sanitize_error_message(msg)
         assert "C:\\tmp" not in out
 
+
+
+class TestFileTraversalPrecision:
+    """F-4: file-traversal blocks only '../'-style sequences — the rule
+    must stay inside the zero-false-positive boundary (D-018)."""
+
+    def test_double_dot_filename_not_blocked(self) -> None:
+        _w, blocked = scan_tool_params("x", {"filename": "v1..2.ma"})
+        assert blocked == []
+
+    def test_bare_double_dot_not_blocked(self) -> None:
+        _w, blocked = scan_tool_params("x", {"filename": ".."})
+        assert blocked == []
+
+    def test_parent_dir_prefix_blocked(self) -> None:
+        _w, blocked = scan_tool_params("x", {"filename": "../evil.ma"})
+        assert blocked and blocked[0]["rule_id"] == "file-traversal"
+
+    def test_embedded_traversal_blocked(self) -> None:
+        _w, blocked = scan_tool_params("x", {"filename": "scenes/../evil.ma"})
+        assert blocked and blocked[0]["rule_id"] == "file-traversal"
+
+    def test_windows_separator_traversal_blocked(self) -> None:
+        _w, blocked = scan_tool_params("x", {"filename": "a\\..\\b.ma"})
+        assert blocked and blocked[0]["rule_id"] == "file-traversal"
+
+
+class TestAuditDualWrite:
+    """F-5: a failed JSONL write must not kill the logger sink, and the
+    file sink recovers on the next writable attempt (no permanent latch)."""
+
+    def test_failed_write_still_logs_and_recovers(
+        self, tmp_path, caplog
+    ) -> None:
+        log_path = tmp_path / "audit" / "audit.jsonl"
+        audit = AuditLogger(log_path)
+        audit.record({"event_id": "e1", "outcome": "success"})
+        assert log_path.exists()
+
+        audit.path = tmp_path  # a directory: os.open(O_WRONLY) fails
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="maya_mcp_server.security"):
+            audit.record({"event_id": "e2", "outcome": "success"})
+            audit.record({"event_id": "e3", "outcome": "success"})
+        dual = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.INFO and r.message.startswith("audit ")
+        ]
+        assert len(dual) == 2  # logger dual-write survived the file failure
+        warn = [r for r in caplog.records if "write failed" in r.message]
+        assert len(warn) == 1  # throttled: once per failure streak
+
+        audit.path = log_path  # writable again -> latch must be gone
+        audit.record({"event_id": "e4", "outcome": "success"})
+        lines = [line for line in log_path.read_text().splitlines() if line.strip()]
+        assert len(lines) == 2
+        assert any('"e4"' in line for line in lines)

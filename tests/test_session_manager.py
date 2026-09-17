@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from maya_mcp_server.client import MayaClient, MayaConnectionError
+from maya_mcp_server.security import SessionLookupError
 from maya_mcp_server.session_manager import SessionManager
 from maya_mcp_server.types import ClientType, SessionInfo
 
@@ -463,7 +464,7 @@ class TestGetClient:
     @pytest.mark.asyncio
     async def test_get_client_no_sessions_raises(self, session_manager: SessionManager) -> None:
         """Test get_client raises when no sessions available."""
-        with pytest.raises(ValueError, match="No Maya sessions available"):
+        with pytest.raises(SessionLookupError, match="No Maya sessions available"):
             await session_manager.get_client()
 
     @pytest.mark.asyncio
@@ -479,13 +480,13 @@ class TestGetClient:
         session_manager._sessions["127.0.0.1:50000"] = client1
         session_manager._sessions["127.0.0.1:50001"] = client2
 
-        with pytest.raises(ValueError, match="Multiple sessions available"):
+        with pytest.raises(SessionLookupError, match="Multiple sessions available"):
             await session_manager.get_client()
 
     @pytest.mark.asyncio
     async def test_get_client_session_not_found(self, session_manager: SessionManager) -> None:
         """Test get_client raises when specified session not found."""
-        with pytest.raises(ValueError, match="Session 127.0.0.1:50000 not found"):
+        with pytest.raises(SessionLookupError, match="Session 127.0.0.1:50000 not found"):
             await session_manager.get_client("127.0.0.1:50000")
 
     @pytest.mark.asyncio
@@ -569,3 +570,49 @@ class TestAddSession:
 
         with pytest.raises(MayaConnectionError):
             await session_manager.add_session("127.0.0.1", 7001)
+
+
+class TestCodedSessionErrors:
+    """F-1 (D-019): session lookup failures raise coded PipelineError
+    subclasses so the MCP layer surfaces a [code] prefix."""
+
+    async def test_no_sessions_raises_coded(self, session_manager) -> None:
+        from maya_mcp_server.security import SessionLookupError
+
+        with pytest.raises(SessionLookupError) as ei:
+            await session_manager.get_client()
+        assert ei.value.code == "session_unavailable"
+        assert "[session_unavailable]" in str(ei.value)
+        assert ei.value.suggestion
+
+    async def test_unknown_session_raises_coded(
+        self, session_manager, mock_client
+    ) -> None:
+        from maya_mcp_server.security import SessionLookupError
+
+        session_manager._sessions["127.0.0.1:50000"] = mock_client
+        with pytest.raises(SessionLookupError) as ei:
+            await session_manager.get_client("127.0.0.1:9999")
+        assert ei.value.code == "session_unavailable"
+
+    async def test_ambiguous_sessions_raises_coded(
+        self, session_manager, mock_client
+    ) -> None:
+        from maya_mcp_server.security import SessionLookupError
+
+        other = MagicMock()
+        other.key = "127.0.0.1:50001"
+        session_manager._sessions["127.0.0.1:50000"] = mock_client
+        session_manager._sessions["127.0.0.1:50001"] = other
+        with pytest.raises(SessionLookupError) as ei:
+            await session_manager.get_client()
+        assert ei.value.code == "session_unavailable"
+
+    async def test_init_bad_client_type_raises_coded(self) -> None:
+        from maya_mcp_server.security import InputValidationError
+        from maya_mcp_server.server import initialize_session_manager
+
+        with pytest.raises(InputValidationError) as ei:
+            await initialize_session_manager(client_type="bogus")
+        assert ei.value.code == "invalid_input"
+        assert "[invalid_input]" in str(ei.value)

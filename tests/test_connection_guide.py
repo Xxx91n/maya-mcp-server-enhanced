@@ -234,7 +234,7 @@ class TestUninstallMarkerBlock:
             "maya_mcp_server.connection_guide.find_maya_installations",
             return_value=[fake],
         ):
-            res = uninstall_user_setup(port=7001)
+            res = uninstall_user_setup()
         assert res["results"][0]["action"] == "not_installed"
 
     def test_no_block_is_noop(self, tmp_path):
@@ -244,7 +244,7 @@ class TestUninstallMarkerBlock:
             "maya_mcp_server.connection_guide.find_maya_installations",
             return_value=[fake],
         ):
-            res = uninstall_user_setup(port=7001)
+            res = uninstall_user_setup()
         entry = res["results"][0]
         assert entry["action"] == "no_block"
         assert fake.user_setup_path.read_text() == "# user code\n"
@@ -259,7 +259,7 @@ class TestUninstallMarkerBlock:
             "maya_mcp_server.connection_guide.find_maya_installations",
             return_value=[fake],
         ):
-            res = uninstall_user_setup(port=7001)
+            res = uninstall_user_setup()
         entry = res["results"][0]
         assert entry["action"] == "block_removed"
         content = fake.user_setup_path.read_text(encoding="utf-8")
@@ -274,7 +274,7 @@ class TestUninstallMarkerBlock:
             "maya_mcp_server.connection_guide.find_maya_installations",
             return_value=[fake],
         ):
-            res = uninstall_user_setup(port=7001)
+            res = uninstall_user_setup()
         entry = res["results"][0]
         assert entry["action"] == "block_removed"
         assert entry["file_now_empty"] is True
@@ -287,7 +287,7 @@ class TestUninstallMarkerBlock:
             "maya_mcp_server.connection_guide.find_maya_installations",
             return_value=[fake],
         ):
-            res = uninstall_user_setup(port=7001, remove_empty_file=True)
+            res = uninstall_user_setup(remove_empty_file=True)
         entry = res["results"][0]
         assert entry["action"] == "file_removed"
         assert not fake.user_setup_path.exists()
@@ -366,3 +366,41 @@ class TestFindMayaInstallations:
         ), patch.object(Path, "home", return_value=tmp_path):
             results = find_maya_installations()
         assert any(r.version == "2024" for r in results)
+
+
+def test_quoted_marker_text_is_not_a_region(tmp_path):
+    """F-6: a comment mentioning the marker text inside another line must
+    not be treated as a real marker line (substring-match forgery)."""
+    fake = _install(tmp_path)
+    fake.user_setup_path.write_text(
+        f"# docs say the block starts with '{MARKER_BEGIN}'\nimport maya.cmds\n",
+        encoding="utf-8",
+    )
+    with patch(
+        "maya_mcp_server.connection_guide.find_maya_installations",
+        return_value=[fake],
+    ):
+        res = install_user_setup(port=7001)
+    entry = res["results"][0]
+    assert entry["action"] == "needs_confirm"
+    assert "proposed_block" in entry
+
+
+def test_uninstall_keeps_lines_quoting_marker(tmp_path):
+    """F-6: uninstall removes the real block but preserves comment lines
+    that merely quote the marker text."""
+    fake = _install(tmp_path)
+    quoted = f"# remember: '{MARKER_BEGIN}' marks the managed block\n"
+    fake.user_setup_path.write_text(
+        quoted + _marker_block(7001), encoding="utf-8"
+    )
+    with patch(
+        "maya_mcp_server.connection_guide.find_maya_installations",
+        return_value=[fake],
+    ):
+        res = uninstall_user_setup()
+    entry = res["results"][0]
+    assert entry["action"] == "block_removed"
+    content = fake.user_setup_path.read_text(encoding="utf-8")
+    assert quoted in content
+    assert MARKER_END not in content

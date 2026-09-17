@@ -11,14 +11,16 @@ rate-limit (read/write token buckets) -> pattern scan -> dispatch ->
 audit JSONL. userSetup.py install/uninstall now follows D-017 A'
 marker-block semantics. Maya-domain errors migrated to
 {error:{code,message,suggestion?}}; host failures raise coded
+    (initially incomplete — completed in repair pass, see bottom)
 exceptions that surface as isError + [code] text.
 
 ## Evidence
 
 ### 1. Tests
-- `python -m pytest tests/ -q` -> `443 passed, 3 skipped`
-  (baseline 370+3skip; +73 new: pipeline 32, connection_guide 35 incl.
-  marker-block cases, security +6, checkpoint D-019 shape class).
+- `python -m pytest tests/ -q` -> `457 passed, 3 skipped`
+  (443 pre-repair; +14 repair regression tests for F-1/F-3/F-4/F-5/F-6).
+  (baseline 370+3skip; +73 new: test_pipeline +32, test_connection_guide +12,
+  test_security +24, test_checkpoint_rollback +5).
 
 ### 2. Quality budgets (must not rise)
 - `python -m ruff check src/ --output-format concise` -> `Found 175` (baseline 185)
@@ -110,3 +112,47 @@ exceptions that surface as isError + [code] text.
   aesthetic_engine) \u2014 budgets only decreased, per ratchet rule.
 - safe_mode AST allowlist remains roadmap P2, unimplemented, and is
   documented as such.
+
+
+---
+
+## Repair pass (post-audit, same day)
+
+Audit: reports/2026-09-17-audit-t04.md — verdict 打回 (4 must-fix + 6 suggested).
+All ten addressed:
+
+- F-1 host-side coding completed: session_manager get_client() three bare
+  ValueError -> SessionLookupError [session_unavailable] + suggestion;
+  server get_session_manager RuntimeError -> ServerNotReadyError
+  [server_not_started]; initialize_session_manager ClientType() wrapped to
+  InputValidationError; client.py unknown-client TypeError ->
+  InputValidationError. Verified live: scene_snapshot with no session ->
+  isError `[session_unavailable] No Maya sessions available (suggestion: ...)`.
+- F-2 threat-model §5 rewritten verbatim from TOOL_ANNOTATIONS (all 18
+  tools in 3 hint rows; programmatic row-by-row check prints MATCH x3).
+  §3 regex wording updated to ../; §4 notes resources bypass the pipeline.
+- F-3 _resolve_session_id moved inside the pipeline try; Context.session_id
+  RuntimeError now falls back to `_default` — still audited (test:
+  test_session_resolution_failure_still_audited).
+- F-4 file-traversal regex tightened `..` -> `../` or `..\\`:
+  live smoke shows ../x.ma -> [blocked_pattern], a..b.ma passes scan
+  (reaches dispatch; fails only on no-session). Unit tests pin both sides.
+- F-5 audit dual-write reordered: logger.info unconditional; file failure
+  warns once per streak (no permanent latch) — recovery tested.
+- F-6 _block_region switched to full-line equality; quoted marker text in
+  comments no longer forges a region (two tests).
+- F-7 server.py coded re-raise preserves suggestion kwarg.
+- F-8 dead code removed: _WARN sentinel, rate_limit_max_calls alias,
+  finally:pass + fd-leak in _append; _refill -> public refill;
+  RateLimiter.check -> try_consume.
+- F-9 AGENTS.md dependency row trailing empty cell removed; pipeline
+  comments corrected ((7)->(6), (2+1)->(3)).
+- F-10 maya_setup_guide exposes dry_run passthrough; uninstall_user_setup
+  dropped the dead port param (callers + tests updated).
+- Also fixed: literal `\uXXXX` escapes left in threat-model.md (17)
+  and SECURITY.md (6) decoded to real characters; literal __BT__ markers
+  in next-round.md banner decoded.
+
+Re-verified: pytest 457+3skip; ruff src=174, repo=237; mypy=221;
+compileall clean; wheel ok; stdio smoke 18 tools/4 hints; audit JSONL
+records success+error+rejected incl. the new session_unavailable events.

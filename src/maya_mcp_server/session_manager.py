@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from maya_mcp_server.client import BaseMayaClient, MayaClient, MayaConnectionError
+from maya_mcp_server.security import SessionLookupError
 from maya_mcp_server.types import (
     COMMUNICATION_PORT_MAX,
     COMMUNICATION_PORT_MIN,
@@ -247,7 +248,7 @@ class SessionManager:
             The MayaClient for the session
 
         Raises:
-            ValueError: If no sessions exist, multiple sessions exist without
+            SessionLookupError: If no sessions exist, multiple sessions exist without
                         explicit selection, or the specified session is not found.
 
         Stream capture is automatically installed on first access to each session.
@@ -256,19 +257,31 @@ class SessionManager:
         client: BaseMayaClient
         if session_key is None:
             if len(self._sessions) == 0:
-                raise ValueError("No Maya sessions available. Use add_session first.")
+                raise SessionLookupError(
+                    "No Maya sessions available",
+                    suggestion=(
+                        "call add_session(host, port) first, "
+                        "or maya_setup_guide() for setup"
+                    ),
+                )
             elif len(self._sessions) == 1:
                 client = next(iter(self._sessions.values()))
             else:
                 session_keys = list(self._sessions.keys())
-                raise ValueError(
-                    f"Multiple sessions available: {session_keys}. "
-                    "Specify host and port explicitly."
+                raise SessionLookupError(
+                    f"Multiple sessions available: {session_keys}",
+                    suggestion="pass session_key='host:port' explicitly",
                 )
         else:
             maybe_client = self._sessions.get(session_key)
             if maybe_client is None:
-                raise ValueError(f"Session {session_key} not found")
+                raise SessionLookupError(
+                    f"Session {session_key} not found",
+                    suggestion=(
+                        "call list_sessions() for connected sessions, "
+                        "or add_session() to connect"
+                    ),
+                )
             client = maybe_client
 
         # Auto-install stream capture on first access

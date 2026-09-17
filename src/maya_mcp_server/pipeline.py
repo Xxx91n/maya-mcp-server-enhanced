@@ -64,14 +64,14 @@ TOOL_ANNOTATIONS: dict[str, mt.ToolAnnotations] = {
     "scene_checkpoint_list": _READ,
     "scene_aesthetics": _READ,
     "scene_review": _READ,
-    # mutation-class tools: scene/filesystem effects, not destructive (7)
+    # mutation-class tools: scene/filesystem effects, not destructive (6)
     "scene_checkpoint": _WRITE_SAFE,
     "scene_rollback": _WRITE_SAFE,
     "scene_plan": _WRITE_SAFE,
     "camera_create": _WRITE_SAFE,
     "camera_orbit": _WRITE_SAFE,
     "add_session": _WRITE_SAFE,
-    # dangerous tools: arbitrary code execution / startup-file writes (2+1)
+    # dangerous tools: arbitrary code execution / startup-file writes (3)
     "execute_code": _WRITE_DESTRUCTIVE,
     "write_module": _WRITE_DESTRUCTIVE,
     "maya_setup_guide": _WRITE_DESTRUCTIVE,
@@ -131,11 +131,12 @@ class SecurityPipeline(Middleware):
         args = getattr(context.message, "arguments", None) or {}
         if not isinstance(args, dict):
             args = {}
-        session_id = _resolve_session_id(context, args)
         started = time.monotonic()
         outcome = "success"
+        session_id = "_default"
         warnings: list[dict[str, str]] = []
         try:
+            session_id = _resolve_session_id(context, args)
             # 1. host-side validation (tool-semantic checks stay in tool bodies)
             if "session_key" in args:
                 validate_session_key(args.get("session_key"))
@@ -151,7 +152,7 @@ class SecurityPipeline(Middleware):
                 limiter = (
                     self._read_limiter if kind == "read" else self._write_limiter
                 )
-                if not limiter.check(session_id):
+                if not limiter.try_consume(session_id):
                     wait = limiter.retry_after(session_id)
                     raise RateLimitExceededError(
                         f"{kind}-class rate limit exceeded for session "
@@ -181,13 +182,19 @@ class SecurityPipeline(Middleware):
                         ),
                     )
 
-            # 4. dispatch
-            result = await call_next(context)
+            # 4. dispatch — errors raised inside the tool count as "error",
+            # not "rejected" (rejected = the pipeline itself denied the call)
+            try:
+                result = await call_next(context)
+            except Exception:
+                outcome = "error"
+                raise
             if _result_is_error(result):
                 outcome = "error"
             return result
         except PipelineError:
-            outcome = "rejected"
+            if outcome != "error":
+                outcome = "rejected"
             raise
         except Exception:
             outcome = "error"
@@ -214,8 +221,13 @@ def _resolve_session_id(
     sk = args.get("session_key")
     if isinstance(sk, str) and sk:
         return sk
-    fctx = getattr(context, "fastmcp_context", None)
-    sid = getattr(fctx, "session_id", None) if fctx is not None else None
+    try:
+        fctx = getattr(context, "fastmcp_context", None)
+        # Context.session_id raises RuntimeError without a request context
+        # (in-process / transport-less calls) -> fall back, never crash.
+        sid = getattr(fctx, "session_id", None) if fctx is not None else None
+    except Exception:
+        sid = None
     if isinstance(sid, str) and sid:
         return sid
     return "_default"
