@@ -10,6 +10,8 @@ English | [中文](README.md)
 
 **Key capability:** The AI can "see" the Maya scene — spatial state, material distribution, object relationships — and perform intelligent auditing based on engineering standards.
 
+> ⚠️ **Security note**: this server executes arbitrary Python inside Maya by design. The built-in validation / rate-limit / audit pipeline is a **safety net for accidents and injected instructions — not a boundary against a malicious client**; the connected agent is trusted. See [docs/threat-model.md](docs/threat-model.md).
+
 ## Capability Matrix
 
 | Capability | Tools | Description |
@@ -139,7 +141,7 @@ shell (23obj) @(-11.8,178.8,145.7)
 │  scene_snapshot() → complete spatial model│
 │  scene_review() → 9-dimension audit score│
 └──────────┬───────────────────────────────┘
-           │ 15 MCP tools
+           │ 18 MCP tools
 ┌──────────▼───────────────────────────────┐
 │        MCP Server Layer                   │
 │  scene_tools.py  → tool definitions       │
