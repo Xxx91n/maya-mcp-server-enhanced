@@ -1,10 +1,10 @@
-# Handoff — maya-mcp-grill 下一轮任务书（rev8）
+# Handoff — maya-mcp-grill 下一轮任务书（rev9）
 
-> 生成时间：2026-09-17（T-05 完成交棒）。供任意子 Agent 接手；结论以决策账本为唯一真源。
+> 生成时间：2026-09-17（T-05 审计通过交棒）。供任意子 Agent 接手；结论以决策账本为唯一真源。
 
 ## 本轮验收事实（非计划）
 
-- **T-05 实施完成，审计返修一轮，待复审**：首轮审计(audit-t05)裁定打回返工——F-1 headless 回退死代码+僵尸会话(两层失效)、F-2 ruff repo +1 失实、F-3 Qt 路径域 code 丢失；三项已全修(双端防御：helper 事件循环检测 qt_unavailable_headless + client liveness gate ping≤5s；raise_on_error=False 契约钉；域 code 编入异常文本)。O-1/O-3/O-4/O-6 顺手核销，O-2/O-5 已入登记债。分支 fix/t05-qt-channel(kyn=feat+kpt=docs+返修 commit)。报告 reports/2026-09-17-t05-implementation.md（含返修附录）。
+- **T-05 通过**：Qt 连接层重写验收完成——readyRead + 逐连接 FIFO + 分帧(16MiB) + typed error + 退避 + localhost-only + health 接线；headless 双端防御(helper 事件循环检测 qt_unavailable_headless + client liveness gate ping<=5s)；add_session bug 已修；D-014c 顺带清单全核销。审计链：audit-t05(打回 F-1/2/3) -> tyv 返修 -> audit-t05-closure(通过)。分支 fix/t05-qt-channel(kyn+kpt+tyv)。报告 reports/2026-09-17-t05-implementation.md(含返修附录)。
 - **基线（勿劣化）**：pytest **517+3skip**；ruff src=174/repo=237；mypy=221；compileall+wheel+stdio(18工具四hint ping audit JSONL)全绿。
 - **锐评复核（round6 实物复验）**：rui.txt 全条目有归属无孤儿；T-04 核销项实证为真（marker-block :45/confirm :392/真 token bucket/pipeline 收口/helper 诚实注释 :182）。
 - **round6 决策**：D-020（对标三档能力矩阵，①被 D-021 修订）→ D-021（任务重排 C 版）→ D-022（Codex Skills 处置 C 微调版）。落地 ADR-0012。
@@ -44,6 +44,7 @@ T-07 注册表+绞杀拆分    ← 内部债
 - T-05 已交付分帧红利：base64 视口图走 16MiB 帧通道无 temp-file 负担；headless 会话无视口→显式能力错误（D-019 契约：内定时选域侧语义，未决项 #1 届时核销）
 - 传播级一等公民：发布演示素材依此产出
 - 注意 seam：截图能力挂在 client.framed_channel 上区分 GUI/headless；Maya 侧用 MGlobal.activeView + OGS 或 cmds.getAttr 屏幕捕获路径，先调研最小实现
+- 审计移交：T-05 closure R-2——headless bootstrap→native 落会话尚无真机实测，首个摸到 mayapy 的窗口顺手补验(非阻塞)
 
 ## 其后任务速览
 
