@@ -1,17 +1,24 @@
-"""Security utilities for maya-mcp-server.
+"""Security pipeline primitives for maya-mcp-server.
 
-Provides input validation, rate limiting, and security checks
-for MCP tool inputs before they reach Maya execution.
+All 18 MCP tools funnel through the SecurityPipeline middleware
+(pipeline.py): input validation -> rate limit -> pattern scan ->
+dispatch -> audit. This module is a safety net for confused-deputy
+scenarios, NOT a security boundary (see SECURITY.md).
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import os
 import re
 import time
-from collections import defaultdict
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 
 logger = logging.getLogger(__name__)
@@ -22,84 +29,68 @@ MAX_CODE_SIZE = 1_048_576
 # Maximum module name length
 MAX_MODULE_NAME_LENGTH = 256
 
-# Dangerous patterns that should be flagged (not blocked, as exec is core functionality)
-DANGEROUS_PATTERNS = [
-    (r"__import__\s*\(\s*['\"]subprocess['\"]", "subprocess import detected"),
-    (r"__import__\s*\(\s*['\"]os['\"]", "os module import via __import__"),
-    (r"os\.(system|popen|exec|spawn)", "os command execution"),
-    (r"subprocess\.(run|call|Popen|check_output|check_call)", "subprocess execution"),
-    (r"eval\s*\(", "eval() usage"),
-    (r"exec\s*\(", "exec() usage"),
-    (r"__builtins__", "builtins access"),
-    (r"open\s*\(.+['\"]w['\"]", "file write operation"),
-    (r"shutil\.(rmtree|move|copy)", "filesystem operations"),
-]
-
 # Module name validation pattern (Python identifier with dots)
 MODULE_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")
 
-# Rate limiting configuration
+# Rate limiting configuration (D-018: split read/write token buckets)
 RATE_LIMIT_WINDOW = 60.0  # seconds
-RATE_LIMIT_MAX_CALLS = 100  # max calls per window per session
+RATE_LIMIT_READ_MAX_CALLS = 100  # read-class tools per window per session
+RATE_LIMIT_WRITE_MAX_CALLS = 20  # mutation-class tools per window per session
+
+# Audit log configuration (D-018)
+AUDIT_APP_NAME = "mcp-for-maya"
+AUDIT_LOG_FILENAME = "audit.jsonl"
+AUDIT_MAX_BYTES = 10 * 1024 * 1024  # 10 MiB per segment
+AUDIT_BACKUP_COUNT = 5
+AUDIT_SUMMARY_MAX_CHARS = 200
+AUDIT_VALUE_PREVIEW_CHARS = 60
 
 
-@dataclass
-class SecurityConfig:
-    """Security configuration for the MCP server."""
-
-    max_code_size: int = MAX_CODE_SIZE
-    max_module_name_length: int = MAX_MODULE_NAME_LENGTH
-    enable_dangerous_pattern_warning: bool = True
-    block_dangerous_patterns: bool = False
-    allow_remote_connections: bool = False
-    rate_limit_enabled: bool = True
-    rate_limit_window: float = RATE_LIMIT_WINDOW
-    rate_limit_max_calls: int = RATE_LIMIT_MAX_CALLS
+# ---------------------------------------------------------------------------
+# Error contract (D-019): host-side failures raise coded exceptions which
+# surface through MCP isError with a [code] prefix embedded in the text.
+# ---------------------------------------------------------------------------
 
 
-@dataclass
-class RateLimiter:
-    """Token bucket rate limiter per session."""
+class PipelineError(Exception):
+    """Host-side pipeline failure.
 
-    window: float = RATE_LIMIT_WINDOW
-    max_calls: int = RATE_LIMIT_MAX_CALLS
-    _calls: dict[str, list[float]] = field(default_factory=lambda: defaultdict(list))
+    The rendered message always carries a [code] prefix so the agent can
+    classify the failure from the isError text alone.
+    """
 
-    def check(self, session_key: str) -> bool:
-        """Check if a call is allowed for the given session.
+    code = "pipeline_error"
 
-        Returns:
-            True if allowed, False if rate limited
-        """
-        now = time.monotonic()
-        calls = self._calls[session_key]
-
-        # Remove old calls outside the window
-        cutoff = now - self.window
-        self._calls[session_key] = [t for t in calls if t > cutoff]
-
-        if len(self._calls[session_key]) >= self.max_calls:
-            logger.warning(
-                f"Rate limit exceeded for session {session_key}: "
-                f"{len(self._calls[session_key])} calls in {self.window}s"
-            )
-            return False
-
-        self._calls[session_key].append(now)
-        return True
-
-    def get_remaining(self, session_key: str) -> int:
-        """Get remaining calls in the current window."""
-        now = time.monotonic()
-        cutoff = now - self.window
-        active = sum(1 for t in self._calls[session_key] if t > cutoff)
-        return max(0, self.max_calls - active)
+    def __init__(self, message: str = "", *, suggestion: str | None = None) -> None:
+        self.message = message
+        self.suggestion = suggestion
+        text = f"[{self.code}] {message}"
+        if suggestion:
+            text += f" (suggestion: {suggestion})"
+        super().__init__(text)
 
 
-class InputValidationError(Exception):
+class InputValidationError(PipelineError):
     """Raised when input validation fails."""
 
-    pass
+    code = "invalid_input"
+
+
+class RateLimitExceededError(PipelineError):
+    """Raised when a session exceeds its rate limit bucket."""
+
+    code = "rate_limited"
+
+
+class PatternBlockedError(PipelineError):
+    """Raised when a parameter hits a zero-false-positive block rule."""
+
+    code = "blocked_pattern"
+
+
+# ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
 
 
 def validate_code_size(code: str, max_size: int = MAX_CODE_SIZE) -> None:
@@ -181,50 +172,443 @@ def validate_session_key(session_key: str | None) -> str | None:
     return session_key
 
 
-def scan_for_dangerous_patterns(code: str) -> list[str]:
-    """Scan code for potentially dangerous patterns.
+# ---------------------------------------------------------------------------
+# Rate limiting: real token buckets, split read/write, per session (D-018)
+# ---------------------------------------------------------------------------
 
-    This does NOT block execution - it generates warnings for logging/auditing.
+
+@dataclass
+class TokenBucket:
+    """A real token bucket: capacity + continuous refill.
+
+    Starts full; each take() consumes one token. Refill accrues
+    refill_per_sec tokens up to capacity.
+    """
+
+    capacity: float
+    refill_per_sec: float
+    tokens: float = field(default=0.0)
+    updated: float = field(default_factory=time.monotonic)
+
+    def __post_init__(self) -> None:
+        self.tokens = float(self.capacity)
+
+    def _refill(self) -> None:
+        now = time.monotonic()
+        self.tokens = min(
+            self.capacity, self.tokens + (now - self.updated) * self.refill_per_sec
+        )
+        self.updated = now
+
+    def take(self, n: float = 1.0) -> bool:
+        """Consume n tokens if available."""
+        self._refill()
+        if self.tokens >= n:
+            self.tokens -= n
+            return True
+        return False
+
+    def retry_after(self) -> float:
+        """Seconds until one more token is available."""
+        self._refill()
+        if self.tokens >= 1.0:
+            return 0.0
+        if self.refill_per_sec <= 0:
+            return float("inf")
+        return (1.0 - self.tokens) / self.refill_per_sec
+
+
+@dataclass
+class RateLimiter:
+    """Per-session token bucket rate limiter."""
+
+    window: float = RATE_LIMIT_WINDOW
+    max_calls: int = RATE_LIMIT_READ_MAX_CALLS
+    _buckets: dict[str, TokenBucket] = field(default_factory=dict)
+
+    def _bucket(self, session_key: str) -> TokenBucket:
+        bucket = self._buckets.get(session_key)
+        if bucket is None:
+            bucket = TokenBucket(
+                capacity=float(self.max_calls),
+                refill_per_sec=self.max_calls / self.window if self.window > 0 else 0.0,
+            )
+            self._buckets[session_key] = bucket
+        return bucket
+
+    def check(self, session_key: str) -> bool:
+        """Check if a call is allowed for the given session.
+
+        Returns:
+            True if allowed, False if rate limited
+        """
+        allowed = self._bucket(session_key).take()
+        if not allowed:
+            logger.warning(
+                f"Rate limit exceeded for session {session_key}: "
+                f"{self.max_calls} calls per {self.window}s"
+            )
+        return allowed
+
+    def retry_after(self, session_key: str) -> float:
+        """Seconds until the session may call again."""
+        return self._bucket(session_key).retry_after()
+
+    def get_remaining(self, session_key: str) -> int:
+        """Remaining calls available right now."""
+        bucket = self._bucket(session_key)
+        bucket._refill()
+        return max(0, int(bucket.tokens))
+
+
+# ---------------------------------------------------------------------------
+# Pattern scanning (D-018): warn-by-default, block only precise rules,
+# detection decoupled from enforcement via a rule_id x tool x param
+# exclusion table.
+# ---------------------------------------------------------------------------
+
+# Param-name -> kind classification used by rules and validation.
+PARAM_KINDS: dict[str, str] = {
+    "code": "code",
+    "filename": "filename",
+    "filepath": "filename",
+    "path": "filename",
+}
+
+
+@dataclass(frozen=True)
+class PatternRule:
+    """One pattern-scan rule.
+
+    param_kinds=None applies to every string parameter; otherwise the rule
+    only fires on params whose classified kind is in the set.
+    """
+
+    rule_id: str
+    regex: re.Pattern[str]
+    message: str
+    action: str = "warn"  # "warn" | "block"
+    param_kinds: frozenset[str] | None = None
+
+
+# Broad warn-only rules: recorded to the audit log, never block (D-018).
+_WARN: frozenset[str] = frozenset()  # sentinel: all string params
+PATTERN_RULES: list[PatternRule] = [
+    # --- precise block rules (zero-false-positive class) ---
+    PatternRule(
+        "code-os-system",
+        re.compile(r"\bos\.system\s*\(|\bos\.popen\s*\("),
+        "os command execution",
+        action="block",
+        param_kinds=frozenset({"code"}),
+    ),
+    PatternRule(
+        "code-subprocess",
+        re.compile(r"\bsubprocess\b"),
+        "subprocess usage",
+        action="block",
+        param_kinds=frozenset({"code"}),
+    ),
+    PatternRule(
+        "code-eval",
+        re.compile(r"\beval\s*\("),
+        "eval() usage",
+        action="block",
+        param_kinds=frozenset({"code"}),
+    ),
+    PatternRule(
+        "file-traversal",
+        re.compile(r"\.\."),
+        "path traversal sequence",
+        action="block",
+        param_kinds=frozenset({"filename"}),
+    ),
+    # --- broad warn-only rules (detection, not enforcement) ---
+    PatternRule(
+        "warn-subprocess-import",
+        re.compile(r"__import__\s*\(\s*['\"]subprocess['\"]"),
+        "subprocess import detected",
+        param_kinds=None,
+    ),
+    PatternRule(
+        "warn-os-import",
+        re.compile(r"__import__\s*\(\s*['\"]os['\"]"),
+        "os module import via __import__",
+        param_kinds=None,
+    ),
+    PatternRule(
+        "warn-os-exec",
+        re.compile(r"os\.(system|popen|exec|spawn)"),
+        "os command execution",
+        param_kinds=None,
+    ),
+    PatternRule(
+        "warn-subprocess-call",
+        re.compile(r"subprocess\.(run|call|Popen|check_output|check_call)"),
+        "subprocess execution",
+        param_kinds=None,
+    ),
+    PatternRule(
+        "warn-eval",
+        re.compile(r"eval\s*\("),
+        "eval() usage",
+        param_kinds=None,
+    ),
+    PatternRule(
+        "warn-exec",
+        re.compile(r"exec\s*\("),
+        "exec() usage",
+        param_kinds=None,
+    ),
+    PatternRule(
+        "warn-builtins",
+        re.compile(r"__builtins__"),
+        "builtins access",
+        param_kinds=None,
+    ),
+    PatternRule(
+        "warn-file-write",
+        re.compile(r"open\s*\(.+['\"]w['\"]"),
+        "file write operation",
+        param_kinds=None,
+    ),
+    PatternRule(
+        "warn-shutil",
+        re.compile(r"shutil\.(rmtree|move|copy)"),
+        "filesystem operations",
+        param_kinds=None,
+    ),
+]
+
+# Tuning table: (rule_id, tool_name, param_name) triples that suppress a hit.
+# Kept deliberately small \u2014 every entry is a documented false-positive escape.
+PATTERN_EXCLUSIONS: set[tuple[str, str, str]] = set()
+
+
+def scan_tool_params(
+    tool_name: str,
+    params: dict[str, Any],
+    exclusions: set[tuple[str, str, str]] | None = None,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Scan all string params of a tool call against PATTERN_RULES.
 
     Args:
-        code: Python code to scan
+        tool_name: MCP tool name (for exclusion matching).
+        params: Tool call arguments.
+        exclusions: Optional extra (rule_id, tool, param) suppression set.
 
     Returns:
-        List of warning messages for detected patterns
+        (warnings, blocked): warnings are audit-only hits; blocked are
+        hits on block-action rules.
     """
-    warnings = []
-    for pattern, message in DANGEROUS_PATTERNS:
-        if re.search(pattern, code):
-            warnings.append(message)
-    return warnings
+    excl = PATTERN_EXCLUSIONS | (exclusions or set())
+    warnings: list[dict[str, str]] = []
+    blocked: list[dict[str, str]] = []
+    for name, value in params.items():
+        if not isinstance(value, str):
+            continue
+        kind = PARAM_KINDS.get(name, "string")
+        for rule in PATTERN_RULES:
+            if rule.param_kinds is not None and kind not in rule.param_kinds:
+                continue
+            if (rule.rule_id, tool_name, name) in excl:
+                continue
+            m = rule.regex.search(value)
+            if not m:
+                continue
+            hit = {
+                "rule_id": rule.rule_id,
+                "param": name,
+                "snippet": m.group(0)[:80],
+                "message": rule.message,
+            }
+            (blocked if rule.action == "block" else warnings).append(hit)
+    return warnings, blocked
+
+
+# Backwards-compatible helper kept for ad-hoc scans and tests.
+def scan_for_dangerous_patterns(code: str) -> list[str]:
+    """Scan code for potentially dangerous patterns (warn-only list).
+
+    This does NOT block execution - it returns warning messages.
+    """
+    warnings, _blocked = scan_tool_params("_adhoc", {"code": code})
+    return [w["message"] for w in warnings]
 
 
 def compute_code_hash(code: str) -> str:
-    """Compute SHA-256 hash of code for audit logging.
-
-    Args:
-        code: Python code to hash
-
-    Returns:
-        Hex digest of SHA-256 hash
-    """
+    """Compute SHA-256 hash of code for audit logging."""
     return hashlib.sha256(code.encode("utf-8")).hexdigest()[:32]
 
 
-def sanitize_error_message(message: str) -> str:
-    """Sanitize error messages to avoid leaking internal paths.
+# ---------------------------------------------------------------------------
+# Summaries + sanitization
+# ---------------------------------------------------------------------------
 
-    Args:
-        message: Original error message
+# Param names that must never be recorded (credential-shaped).
+_SENSITIVE_PARAM_RE = re.compile(r"token|secret|password|credential|api[_-]?key", re.I)
 
-    Returns:
-        Sanitized error message
+
+def summarize_params(params: dict[str, Any]) -> str:
+    """Build a sanitized <=200-char input summary for the audit log.
+
+    Records param names with short previews \u2014 never a bare hash of the
+    whole input, never credential-shaped values. Large strings get a
+    head preview + length + short sha256 for dedup.
     """
-    # Remove absolute paths that might leak user information
-    import re
-    # Match Windows paths
-    sanitized = re.sub(r'[A-Z]:\\(?:[^\\]+\\)+', '...\\\\', message)
-    # Match Unix paths
-    sanitized = re.sub(r'/home/[^/]+/', '/.../', sanitized)
-    sanitized = re.sub(r'/Users/[^/]+/', '/.../', sanitized)
+    parts: list[str] = []
+    for name, value in params.items():
+        if _SENSITIVE_PARAM_RE.search(name):
+            parts.append(f"{name}=<redacted>")
+            continue
+        if isinstance(value, str):
+            if len(value) <= AUDIT_VALUE_PREVIEW_CHARS:
+                preview = value.replace("\n", "\\n")
+                parts.append(f'{name}="{preview}"')
+            else:
+                head = value[:40].replace("\n", "\\n")
+                digest = compute_code_hash(value)[:8]
+                parts.append(f'{name}="{head}..."({len(value)}B sha:{digest})')
+        elif isinstance(value, (int, float, bool)) or value is None:
+            parts.append(f"{name}={value!r}")
+        else:
+            parts.append(f"{name}=<{type(value).__name__}>")
+    summary = " ".join(parts)
+    if len(summary) > AUDIT_SUMMARY_MAX_CHARS:
+        summary = summary[: AUDIT_SUMMARY_MAX_CHARS - 3] + "..."
+    return summary
+
+
+def sanitize_error_message(message: str) -> str:
+    """Sanitize error messages to avoid leaking internal paths."""
+    # Windows absolute paths (drive letter + separators + filename)
+    sanitized = re.sub(r"[A-Za-z]:[\\/][^\s\"']+", "<path>", message)
+    # Unix home paths
+    sanitized = re.sub(r"/home/[^/]+/", "/.../", sanitized)
+    sanitized = re.sub(r"/Users/[^/]+/", "/.../", sanitized)
     return sanitized
+
+
+# ---------------------------------------------------------------------------
+# Audit log (D-018): dedicated JSONL file, independent rotation, 0600,
+# dual-written to the app logger, and never blocks tool execution.
+# ---------------------------------------------------------------------------
+
+
+def default_audit_log_path() -> Path:
+    """Audit log path under the platformdirs user log directory."""
+    import platformdirs
+
+    return Path(platformdirs.user_log_dir(AUDIT_APP_NAME)) / AUDIT_LOG_FILENAME
+
+
+class AuditLogger:
+    """Append-only JSONL audit writer with size-based rotation.
+
+    Rotates audit.jsonl -> audit.jsonl.N (N up to backup_count). Write
+    failures are logged to the app logger and swallowed \u2014 auditing is an
+    observability surface, never a tool-execution blocker.
+    """
+
+    def __init__(
+        self,
+        path: Path | None = None,
+        *,
+        max_bytes: int = AUDIT_MAX_BYTES,
+        backup_count: int = AUDIT_BACKUP_COUNT,
+    ) -> None:
+        self.path = path if path is not None else default_audit_log_path()
+        self.max_bytes = max_bytes
+        self.backup_count = backup_count
+        self._disabled = False
+
+    def record(self, event: dict[str, Any]) -> None:
+        """Write one audit event; never raises."""
+        if self._disabled:
+            return
+        try:
+            line = json.dumps(event, ensure_ascii=False, default=str)
+        except Exception as e:
+            logger.warning(f"audit event serialization failed: {e}")
+            return
+        try:
+            self._append(line)
+        except Exception as e:
+            self._disabled = True
+            logger.warning(
+                f"audit log write failed ({self.path}): {e} \u2014 "
+                "audit disabled for this process"
+            )
+            return
+        # Dual-write to the application logger (independent of the JSONL file)
+        logger.info("audit %s", line)
+
+    def _append(self, line: str) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if (
+            self.path.exists()
+            and self.path.stat().st_size + len(line) + 1 > self.max_bytes
+        ):
+            self._rotate()
+        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        finally:
+            pass
+        try:
+            os.chmod(self.path, 0o600)
+        except OSError:
+            pass  # best-effort on platforms without POSIX modes
+
+    def _rotate(self) -> None:
+        for i in range(self.backup_count - 1, 0, -1):
+            src = self.path.with_name(f"{self.path.name}.{i}")
+            dst = self.path.with_name(f"{self.path.name}.{i + 1}")
+            if src.exists():
+                os.replace(src, dst)
+        first = self.path.with_name(f"{self.path.name}.1")
+        os.replace(self.path, first)
+
+
+def build_audit_event(
+    *,
+    session_id: str,
+    tool_name: str,
+    params: dict[str, Any],
+    outcome: str,
+    duration_ms: float,
+    warnings: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Build one audit event dict (the JSONL schema, D-018)."""
+    return {
+        "event_id": str(uuid.uuid4()),
+        "timestamp": datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z"),
+        "session_id": session_id,
+        "tool_name": tool_name,
+        "input_summary": summarize_params(params),
+        "outcome": outcome,
+        "duration_ms": round(duration_ms, 2),
+        "warnings": warnings or [],
+    }
+
+
+@dataclass
+class SecurityConfig:
+    """Security configuration for the MCP server."""
+
+    max_code_size: int = MAX_CODE_SIZE
+    max_module_name_length: int = MAX_MODULE_NAME_LENGTH
+    enable_dangerous_pattern_warning: bool = True
+    block_dangerous_patterns: bool = True
+    allow_remote_connections: bool = False
+    rate_limit_enabled: bool = True
+    rate_limit_window: float = RATE_LIMIT_WINDOW
+    rate_limit_max_calls: int = RATE_LIMIT_READ_MAX_CALLS  # legacy alias
+    rate_limit_read_max_calls: int = RATE_LIMIT_READ_MAX_CALLS
+    rate_limit_write_max_calls: int = RATE_LIMIT_WRITE_MAX_CALLS
+    audit_enabled: bool = True
+    audit_log_path: str | None = None
+    pattern_exclusions: frozenset[tuple[str, str, str]] = frozenset()

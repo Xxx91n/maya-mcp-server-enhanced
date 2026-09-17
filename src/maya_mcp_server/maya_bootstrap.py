@@ -20,7 +20,10 @@ def create_module(name: str, code: str, overwrite: bool = False) -> str:
     for part in parts:
         if not part.isidentifier():
             return json.dumps({
-                "error": f"Invalid module name component '{part}' in '{name}'"
+                "error": {
+                    "code": "invalid_module_name",
+                    "message": f"Invalid module name component '{part}' in '{name}'",
+                }
             })
 
     # Create parent packages as needed
@@ -37,7 +40,12 @@ def create_module(name: str, code: str, overwrite: bool = False) -> str:
                 setattr(parent_mod, "__path__", [])
 
     if name in sys.modules and not overwrite:
-        return json.dumps({"error": f"Module '{name}' already exists. Use overwrite=True."})
+        return json.dumps({
+            "error": {
+                "code": "module_exists",
+                "message": f"Module '{name}' already exists. Use overwrite=True.",
+            }
+        })
 
     module = types.ModuleType(name)
     module.__file__ = f"<mcp:{name}>"
@@ -47,7 +55,13 @@ def create_module(name: str, code: str, overwrite: bool = False) -> str:
         exec(compiled, module.__dict__)
     except Exception as e:
         return json.dumps({
-            "error": f"Failed to compile/execute module '{name}': {type(e).__name__}: {e}"
+            "error": {
+                "code": "module_create_failed",
+                "message": (
+                    f"Failed to compile/execute module '{name}': "
+                    f"{type(e).__name__}: {e}"
+                ),
+            }
         })
     sys.modules[name] = module
 

@@ -18,8 +18,9 @@ src/maya_mcp_server/
 ├── cos_formatter.py       # Chain-of-Symbol notation formatter
 ├── maya_scene_module.py   # Maya-side module (injected via write_module)
 ├── spatial_types.py       # Data type definitions
-├── connection_guide.py    # Maya connection bootstrap + userSetup.py generator + diagnostics
-├── security.py            # Input validation, rate limiting, pattern scanning
+├── connection_guide.py    # Connection bootstrap; userSetup.py managed marker-block (D-017)
+├── security.py            # Validation, token-bucket rate limits, pattern scan, JSONL audit
+├── pipeline.py            # FastMCP middleware: all 18 tools -> validate/rate-limit/scan/audit
 ├── types.py               # Core types (ResultType, ClientType, SessionInfo)
 ├── bootstrap.py           # Server bootstrap
 ├── utils.py               # Utility functions (cross-platform process detection)
@@ -29,6 +30,7 @@ tests/
 ├── maya_stub/             # stub maya.cmds + OpenMaya + Scene graph (D-004/D-005)
 ├── conftest.py            # maya_env fixture installs stub, binds maya_scene_module
 ├── test_checkpoint_rollback.py  # T-03 checkpoint/rollback regression (ADR-0004/D-015)
+├── test_pipeline.py             # T-04 unified pipeline + audit JSONL + annotations (D-018/D-019)
 ├── test_client.py
 ├── test_connection_guide.py
 ├── test_cos_formatter.py
@@ -155,7 +157,9 @@ Failure to update dependent files will cause integration failures.
 | `scene_tools.py` (new tool) | `server.py` (instructions), `README.md`, `README_en.md`, `AGENTS.md` | Tool surface changes require documentation sync |
 | `aesthetic_engine.py` | `maya_scene_module.py` (mirror functions), `tests/test_aesthetic_engine.py` | Standalone engine must match Maya-side implementation |
 | `scene_cache.py` | `scene_tools.py` (cache invalidation), `session_manager.py` (mark_dirty) | Cache behavior must be consistent |
-| `security.py` | `scene_tools.py` (validation calls), `tests/test_security.py` | Security rules must be enforced at tool level |
+| `security.py` | `pipeline.py` (enforcement point), `tests/test_security.py`, `tests/test_pipeline.py` | Security rules enforced by the middleware pipeline, not per-tool |
+| `pipeline.py` | `server.py` (middleware registration + annotations), `scene_tools.py` (annotations), `docs/threat-model.md` | Pipeline/threat-model must stay in sync |
+| `connection_guide.py` | `server.py` (maya_setup_guide params), `tests/test_connection_guide.py` | Marker-block semantics + confirm/remove_empty_file flags | |
 | `cos_formatter.py` | `scene_tools.py` (COS format output) | Formatter changes affect all tool COS outputs |
 
 ### Aesthetic Module Change Checklist

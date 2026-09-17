@@ -19,6 +19,14 @@ import maya.cmds as cmds
 
 # --- Internal helpers ---
 
+def _err(code: str, message: str, suggestion: "str | None" = None) -> dict:
+    """Maya-domain error result (D-019): {"error": {code, message, suggestion?}}."""
+    err: dict = {"code": code, "message": message}
+    if suggestion:
+        err["suggestion"] = suggestion
+    return {"error": err}
+
+
 def _round3(val: float) -> float:
     """Round float to 3 decimal places."""
     return round(float(val), 3)
@@ -553,7 +561,11 @@ def measure(obj_a, obj_b, mode="center") -> dict:
         sel_b.add(obj_b)
         dag_b = sel_b.getDagPath(0)
     except Exception as e:
-        result["error"] = str(e)
+        result["error"] = {
+            "code": "object_not_found",
+            "message": str(e),
+            "suggestion": "verify both object names exist in the scene",
+        }
         return result
 
     # World-space AABBs via all 8 local-bbox corners (rotation-safe)
@@ -781,7 +793,7 @@ def assert_scene_state(expectations_json) -> dict:
                 mismatches.append({
                     "object": obj_name,
                     "property": "position",
-                    "error": str(e),
+                    "error": {"code": "check_failed", "message": str(e)},
                 })
 
         # Check bbox_max
@@ -804,7 +816,7 @@ def assert_scene_state(expectations_json) -> dict:
                 mismatches.append({
                     "object": obj_name,
                     "property": "bbox_max",
-                    "error": str(e),
+                    "error": {"code": "check_failed", "message": str(e)},
                 })
 
         # Check bbox_min
@@ -827,7 +839,7 @@ def assert_scene_state(expectations_json) -> dict:
                 mismatches.append({
                     "object": obj_name,
                     "property": "bbox_min",
-                    "error": str(e),
+                    "error": {"code": "check_failed", "message": str(e)},
                 })
 
         # Check existence only
@@ -1054,12 +1066,14 @@ def _checkpoint_dir(
     except Exception:
         ws = ""
     if not ws:
-        return "", {
-            "error": "Scene is untitled and no Maya workspace resolves \u2014 "
-                     "cannot place an ad-hoc snapshot.",
-            "suggestion": "Save the scene first, then retry.",
-            "original_file_status": "no_original_file",
-        }
+        out = _err(
+            "workspace_unavailable",
+            "Scene is untitled and no Maya workspace resolves \u2014 "
+            "cannot place an ad-hoc snapshot.",
+            "Save the scene first, then retry.",
+        )
+        out["original_file_status"] = "no_original_file"
+        return "", out
     return os.path.join(ws, "checkpoints"), None
 
 
@@ -1072,14 +1086,24 @@ def _ensure_checkpoint_dir(cp_dir: str) -> dict[str, Any] | None:
 
     if os.path.exists(cp_dir):
         if not os.path.isdir(cp_dir):
-            return {"error": f"Checkpoints path exists but is not a directory: {cp_dir}"}
+            return _err(
+                "path_not_directory",
+                f"Checkpoints path exists but is not a directory: {cp_dir}",
+                "remove or rename the conflicting file",
+            )
     else:
         try:
             os.makedirs(cp_dir, exist_ok=True)
         except Exception as e:
-            return {"error": f"Cannot create checkpoints dir {cp_dir}: {e}"}
+            return _err(
+                "dir_create_failed", f"Cannot create checkpoints dir {cp_dir}: {e}"
+            )
     if not os.access(cp_dir, os.W_OK):
-        return {"error": f"Checkpoints dir is not writable: {cp_dir}"}
+        return _err(
+            "dir_not_writable",
+            f"Checkpoints dir is not writable: {cp_dir}",
+            "fix directory permissions or choose another base_dir",
+        )
     return None
 
 
@@ -1096,9 +1120,12 @@ def _write_snapshot(cp_path: str) -> dict[str, Any] | None:
         cmds.file(cp_path, exportAll=True, type="mayaAscii",
                   force=True, prompt=False)
     except Exception as e:
-        return {"error": f"exportAll snapshot failed: {e}"}
+        return _err("snapshot_write_failed", f"exportAll snapshot failed: {e}")
     if not os.path.exists(cp_path):
-        return {"error": f"exportAll returned but snapshot file is missing: {cp_path}"}
+        return _err(
+            "snapshot_missing",
+            f"exportAll returned but snapshot file is missing: {cp_path}",
+        )
     return None
 
 
@@ -1133,14 +1160,19 @@ def _auto_snapshot(cp_dir: str) -> dict[str, Any]:
 
 
 def _rb_error(
+    code: str,
     msg: str,
     scene_before: str,
     scene_after: str | None = None,
+    suggestion: str | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
-    """Structured rollback/checkpoint error carrying scene identity."""
+    """Structured rollback/checkpoint error carrying scene identity (D-019)."""
+    err: dict[str, Any] = {"code": code, "message": msg}
+    if suggestion:
+        err["suggestion"] = suggestion
     d = {
-        "error": msg,
+        "error": err,
         "scene_name_before": scene_before,
         "scene_name_after": scene_after if scene_after is not None else scene_before,
         "original_file_status": "saved" if scene_before else "no_original_file",
@@ -1176,21 +1208,24 @@ def save_checkpoint(
 
     if name is None:
         if untitled:
-            return {
-                "error": "Scene is untitled \u2014 there is no original file to "
-                         "rebind to. Save the scene first, or pass an explicit "
-                         "name to create an ad-hoc snapshot.",
-                "suggestion": "scene_checkpoint(name='rescue') for an ad-hoc snapshot",
-                "original_file_status": "no_original_file",
-                "scene_rebound_to": None,
-            }
+            out = _err(
+                "untitled_scene",
+                "Scene is untitled \u2014 there is no original file to rebind to. "
+                "Save the scene first, or pass an explicit name to create an "
+                "ad-hoc snapshot.",
+                "scene_checkpoint(name='rescue') for an ad-hoc snapshot",
+            )
+            out["original_file_status"] = "no_original_file"
+            out["scene_rebound_to"] = None
+            return out
         name = "checkpoint"
 
     if not _CHECKPOINT_NAME_RE.match(str(name)):
-        return {
-            "error": f"Invalid checkpoint name {name!r}: must match ^[A-Za-z0-9_-]+$",
-            "suggestion": _suggest_name(name),
-        }
+        return _err(
+            "invalid_name",
+            f"Invalid checkpoint name {name!r}: must match ^[A-Za-z0-9_-]+$",
+            _suggest_name(name),
+        )
 
     cp_dir, derr = _checkpoint_dir(scene_path)
     if derr is not None:
@@ -1206,12 +1241,14 @@ def save_checkpoint(
     preserved_as = None
     if os.path.exists(cp_path):
         if not overwrite:
-            return {
-                "error": f"Checkpoint '{name}' already exists as {cp_filename}",
-                "suggestion": "pass overwrite=True to replace it "
-                              "(the existing file is preserved via rename)",
-                "existing": cp_filename,
-            }
+            out = _err(
+                "checkpoint_exists",
+                f"Checkpoint '{name}' already exists as {cp_filename}",
+                "pass overwrite=True to replace it "
+                "(the existing file is preserved via rename)",
+            )
+            out["existing"] = cp_filename
+            return out
         prev_name = f"prev_{timestamp}_{cp_filename}"
         i = 2
         while os.path.exists(os.path.join(cp_dir, prev_name)):
@@ -1220,7 +1257,10 @@ def save_checkpoint(
         try:
             os.replace(cp_path, os.path.join(cp_dir, prev_name))
         except Exception as e:
-            return {"error": f"Could not preserve existing checkpoint before overwrite: {e}"}
+            return _err(
+                "preserve_failed",
+                f"Could not preserve existing checkpoint before overwrite: {e}",
+            )
         preserved_as = prev_name
 
     werr = _write_snapshot(cp_path)
@@ -1310,15 +1350,28 @@ def rollback_to_checkpoint(
     scene_before = _scene_file_path()
     cp_dir, derr = _checkpoint_dir(scene_before)
     if derr is not None:
-        return _rb_error(derr["error"], scene_before,
-                         suggestion=derr.get("suggestion"))
+        err0 = derr["error"]
+        if isinstance(err0, dict):
+            return _rb_error(
+                err0.get("code", "internal"), err0["message"], scene_before,
+                suggestion=err0.get("suggestion"),
+                original_file_status=derr.get("original_file_status"),
+            )
+        return _rb_error("internal", str(err0), scene_before)
 
     if os.path.exists(cp_dir) and not os.path.isdir(cp_dir):
-        return _rb_error(f"Checkpoints path is not a directory: {cp_dir}", scene_before)
+        return _rb_error(
+            "path_not_directory",
+            f"Checkpoints path is not a directory: {cp_dir}",
+            scene_before,
+            suggestion="remove or rename the conflicting file",
+        )
 
     if os.path.basename(filename) != filename or not _CHECKPOINT_FILE_RE.match(filename):
         return _rb_error(
-            f"Invalid checkpoint filename: {filename!r}", scene_before,
+            "invalid_filename",
+            f"Invalid checkpoint filename: {filename!r}",
+            scene_before,
             suggestion="use a filename from scene_checkpoint_list (cp_*.ma / prev_*.ma)")
     cp_path = os.path.join(cp_dir, filename)
     try:
@@ -1328,31 +1381,50 @@ def rollback_to_checkpoint(
     except ValueError:
         inside = False
     if not inside:
-        return _rb_error(f"Checkpoint path escapes checkpoints dir: {filename!r}", scene_before)
+        return _rb_error(
+            "path_escapes_dir",
+            f"Checkpoint path escapes checkpoints dir: {filename!r}",
+            scene_before,
+        )
 
     if not os.path.exists(cp_path):
         return _rb_error(
+            "snapshot_lost",
             f"Checkpoint snapshot lost (快照已丢失): {filename} — "
-            "file missing, possibly deleted externally", scene_before)
+            "file missing, possibly deleted externally",
+            scene_before,
+            suggestion="re-create the checkpoint with scene_checkpoint",
+        )
     try:
         with open(cp_path, encoding="utf-8", errors="replace") as fh:
             head = fh.read(2048)
     except Exception as e:
         return _rb_error(
+            "snapshot_lost",
             f"Checkpoint snapshot lost (快照已丢失): {filename} — "
-            f"unreadable: {e}", scene_before)
+            f"unreadable: {e}",
+            scene_before,
+            suggestion="check filesystem permissions on the checkpoints dir",
+        )
     if _MAYA_ASCII_MAGIC not in head:
         return _rb_error(
+            "snapshot_lost",
             f"Checkpoint snapshot lost (\u5FEB\u7167\u5DF2\u4E22\u5931): {filename} \u2014 missing "
-            "//Maya ASCII header, file was replaced or corrupted", scene_before)
+            "//Maya ASCII header, file was replaced or corrupted",
+            scene_before,
+            suggestion="delete the corrupt file and re-create the checkpoint",
+        )
 
     safety_snapshot = None
     warning = None
     auto = _auto_snapshot(cp_dir)
     if "error" in auto:
         if not discard_current_state:
+            cause = auto["error"]
+            detail = cause["message"] if isinstance(cause, dict) else str(cause)
             return _rb_error(
-                f"auto_before_rollback snapshot failed, rollback aborted: {auto['error']}",
+                "auto_snapshot_failed",
+                f"auto_before_rollback snapshot failed, rollback aborted: {detail}",
                 scene_before, aborted=True,
                 suggestion="fix the snapshot failure, or pass "
                            "discard_current_state=True to roll back without "
@@ -1368,6 +1440,7 @@ def rollback_to_checkpoint(
         cmds.file(cp_path, open=True, force=True, prompt=False)
     except Exception as e:
         return _rb_error(
+            "open_failed",
             f"Failed to open checkpoint: {e}", scene_before,
             scene_after=_scene_file_path(), safety_snapshot=safety_snapshot,
             suggestion="scene may be in a partial state \u2014 call scene_snapshot "
@@ -1378,6 +1451,7 @@ def rollback_to_checkpoint(
             cmds.file(rename=scene_before, prompt=False)
         except Exception as e:
             return _rb_error(
+                "rebind_failed",
                 f"Checkpoint opened but rebind to original scene path failed: {e}",
                 scene_before, scene_after=_scene_file_path(),
                 safety_snapshot=safety_snapshot,
@@ -1431,7 +1505,10 @@ def create_camera_shot(target, shot_type="medium", name="shot_cam", angle=None):
         dict with camera info.
     """
     if shot_type not in SHOT_TYPES:
-        return {"error": f"Unknown shot type: {shot_type}. Available: {list(SHOT_TYPES.keys())}"}
+        return _err(
+            "unknown_shot_type",
+            f"Unknown shot type: {shot_type}. Available: {list(SHOT_TYPES.keys())}",
+        )
 
     shot = SHOT_TYPES[shot_type]
 
@@ -1451,7 +1528,11 @@ def create_camera_shot(target, shot_type="medium", name="shot_cam", angle=None):
             abs(bbox.max[2] - bbox.min[2]),
         )
     except Exception as e:
-        return {"error": f"Target not found: {target}: {e}"}
+        return _err(
+            "target_not_found",
+            f"Target not found: {target}: {e}",
+            "call scene_snapshot to list available targets",
+        )
 
     # Calculate camera position
     distance = target_size * shot["distance_mult"]

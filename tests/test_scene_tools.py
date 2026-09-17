@@ -100,7 +100,9 @@ class TestSceneToolsRegistration:
         mock_mcp = MagicMock()
         registered = {}
 
-        def capture_tool(fn):
+        def capture_tool(fn=None, **_kwargs):
+            if fn is None:
+                return lambda f: capture_tool(f)
             registered[fn.__name__] = fn
             return fn
 

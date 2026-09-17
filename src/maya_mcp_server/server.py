@@ -15,15 +15,12 @@ from maya_mcp_server.connection_guide import (
     install_user_setup,
     uninstall_user_setup,
 )
+from maya_mcp_server.pipeline import TOOL_ANNOTATIONS, SecurityPipeline
 from maya_mcp_server.scene_tools import mark_dirty, register_scene_tools
 from maya_mcp_server.security import (
     InputValidationError,
-    RateLimiter,
     SecurityConfig,
-    compute_code_hash,
     sanitize_error_message,
-    scan_for_dangerous_patterns,
-    validate_code_size,
     validate_module_name,
     validate_session_key,
 )
@@ -35,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 # Security configuration
 _security_config = SecurityConfig()
-_rate_limiter = RateLimiter()
 
 # Initialize FastMCP server with instructions for cross-tool workflows
 mcp = FastMCP(
@@ -58,9 +54,11 @@ mcp = FastMCP(
         "- scene_assert: Verify scene state\n\n"
         "## Constraint & Safety Tools\n"
         "- scene_validate: Check spatial constraints (clearance, overlap, height)\n"
-        "- scene_checkpoint: exportAll snapshot of in-memory state into checkpoints/ (name whitelist, ad-hoc for untitled)\n"
+        "- scene_checkpoint: exportAll snapshot of in-memory state into checkpoints/\n"
+        "  (name whitelist, ad-hoc for untitled scenes)\n"
         "- scene_checkpoint_list: List saved checkpoints\n"
-        "- scene_rollback: Open a checkpoint and rebind the scene to its original path (auto safety snapshot first)\n\n"
+        "- scene_rollback: Open a checkpoint, rebind scene to original path\n"
+        "  (auto safety snapshot first)\n\n"
         "## Camera & Shot Tools\n"
         "- camera_create: Create camera with shot type (wide/medium/close/etc)\n"
         "- camera_orbit: Create orbiting camera with animation\n\n"
@@ -87,7 +85,7 @@ mcp = FastMCP(
         "- Call scene_snapshot() before modifications\n"
         "- Use scene_checkpoint() before risky operations\n"
         "- Snapshots carry no undo history; after scene_rollback call scene_snapshot to rebuild context\n"
-        "- Snapshots are self-contained (references flattened, no write-back);\n"
+        "- Snapshots are self-contained (references flattened, no write-back)\n"
         "  one scene file per session assumed\n"
         "- Use scene_validate() to check constraints after changes\n"
         "- Cache auto-invalidates after execute_code/write_module"
@@ -96,6 +94,10 @@ mcp = FastMCP(
 
 # Register scene tools on the MCP instance
 register_scene_tools(mcp)
+
+# Unified security pipeline: every tool call passes through validation,
+# rate limiting, pattern scanning, and audit logging (D-018/ADR-0005).
+mcp.add_middleware(SecurityPipeline(config=_security_config))
 
 # Global session manager - initialized when server starts
 _session_manager: SessionManager | None = None
@@ -108,23 +110,10 @@ def get_session_manager() -> SessionManager:
     return _session_manager
 
 
-def _check_rate_limit(session_key: str | None) -> None:
-    """Check rate limit for a session. Raises if exceeded."""
-    if not _security_config.rate_limit_enabled:
-        return
-    key = session_key or "_default"
-    if not _rate_limiter.check(key):
-        raise InputValidationError(
-            f"Rate limit exceeded for session. "
-            f"Max {_security_config.rate_limit_max_calls} calls per "
-            f"{_security_config.rate_limit_window}s window."
-        )
-
-
 # MCP Tools
 
 
-@mcp.tool
+@mcp.tool(annotations=TOOL_ANNOTATIONS["list_sessions"])
 async def list_sessions() -> list[SessionInfo]:
     """
     List all active Maya sessions.
@@ -154,11 +143,13 @@ async def list_sessions() -> list[SessionInfo]:
     return sessions
 
 
-@mcp.tool
+@mcp.tool(annotations=TOOL_ANNOTATIONS["maya_setup_guide"])
 async def maya_setup_guide(
     action: str = "diagnose",
     port: int = 7001,
     target_version: str | None = None,
+    confirm: bool = False,
+    remove_empty_file: bool = False,
 ) -> dict[str, Any]:
     """
     Maya connection setup guide and diagnostics.
@@ -170,12 +161,18 @@ async def maya_setup_guide(
     Args:
         action: What to do:
             - "diagnose": Run connection diagnostics and return status
-            - "install": Auto-install userSetup.py to Maya scripts dirs
+            - "install": Merge the managed marker block into userSetup.py.
+              Existing files without the block require a second call with
+              confirm=True (the first call returns the proposed block).
             - "guide": Get full step-by-step connection guide
-            - "uninstall": Remove installed userSetup.py
+            - "uninstall": Remove the managed marker block from userSetup.py
         port: Maya command port number (default: 7001)
         target_version: Specific Maya version (e.g., "2024").
             If None, targets all detected versions.
+        confirm: Required to write into an existing userSetup.py that has
+            no mcp-for-maya marker block (first install call is dry-run).
+        remove_empty_file: On uninstall, delete the file when it only
+            contained the marker block.
 
     Returns:
         Dict with diagnostics, installation results, or guide text
@@ -189,7 +186,9 @@ async def maya_setup_guide(
     if action == "diagnose":
         return get_connection_diagnostics(port)
     elif action == "install":
-        return install_user_setup(port=port, target_version=target_version)
+        return install_user_setup(
+            port=port, target_version=target_version, confirm=confirm
+        )
     elif action == "guide":
         return {
             "guide": get_fallback_instructions(port),
@@ -197,14 +196,18 @@ async def maya_setup_guide(
             "agent_instructions": get_agent_connection_instructions(port),
         }
     elif action == "uninstall":
-        return uninstall_user_setup(port=port, target_version=target_version)
+        return uninstall_user_setup(
+            port=port,
+            target_version=target_version,
+            remove_empty_file=remove_empty_file,
+        )
     else:
         raise InputValidationError(
             f"Invalid action '{action}': must be diagnose, install, guide, or uninstall"
         )
 
 
-@mcp.tool
+@mcp.tool(annotations=TOOL_ANNOTATIONS["write_module"])
 async def write_module(
     name: str,
     code: str,
@@ -236,27 +239,8 @@ async def write_module(
         # Then use it:
         execute_code("import mytools; mytools.create_cube('myCube')")
     """
-    # Input validation
+    # Semantic validation (generic checks run in the SecurityPipeline)
     validate_module_name(name)
-    validate_code_size(code)
-    validate_session_key(session_key)
-
-    # Audit logging
-    code_hash = compute_code_hash(code)
-    logger.info(f"write_module: name={name}, hash={code_hash}, overwrite={overwrite}")
-
-    # Check for dangerous patterns
-    if (
-        _security_config.enable_dangerous_pattern_warning
-        or _security_config.block_dangerous_patterns
-    ):
-        warnings = scan_for_dangerous_patterns(code)
-        if warnings:
-            if _security_config.block_dangerous_patterns:
-                raise InputValidationError(
-                    f"Module '{name}' blocked: contains dangerous patterns: {', '.join(warnings)}"
-                )
-            logger.warning(f"write_module '{name}' contains: {', '.join(warnings)}")
 
     manager = get_session_manager()
     client = await manager.get_client(session_key)
@@ -269,7 +253,7 @@ async def write_module(
     return result
 
 
-@mcp.tool
+@mcp.tool(annotations=TOOL_ANNOTATIONS["execute_code"])
 async def execute_code(
     code: str,
     result_type: str = "NONE",
@@ -299,11 +283,7 @@ async def execute_code(
         # Get JSON result
         execute_code("cmds.ls(type='mesh')", result_type="JSON")
     """
-    # Input validation
-    validate_code_size(code)
-    validate_session_key(session_key)
-
-    # Validate result_type
+    # Semantic validation (size/session checks run in the SecurityPipeline)
     try:
         rt = ResultType(result_type)
     except ValueError:
@@ -311,37 +291,16 @@ async def execute_code(
             f"Invalid result_type '{result_type}': must be NONE, JSON, or RAW"
         )
 
-    # Rate limiting
-    _check_rate_limit(session_key)
-
-    # Audit logging
-    code_hash = compute_code_hash(code)
-    logger.info(
-        f"execute_code: hash={code_hash}, result_type={result_type}, "
-        f"session={session_key or 'auto'}"
-    )
-
-    # Check for dangerous patterns
-    if (
-        _security_config.enable_dangerous_pattern_warning
-        or _security_config.block_dangerous_patterns
-    ):
-        warnings = scan_for_dangerous_patterns(code)
-        if warnings:
-            if _security_config.block_dangerous_patterns:
-                raise InputValidationError(
-                    f"Code blocked: contains dangerous patterns: {', '.join(warnings)}"
-                )
-            logger.warning(f"execute_code [{code_hash}]: {', '.join(warnings)}")
-
     manager = get_session_manager()
     client = await manager.get_client(session_key)
 
     try:
         result = await client.execute_code(code, rt)
     except Exception as e:
-        # Sanitize error messages to avoid leaking internal paths
-        raise type(e)(sanitize_error_message(str(e))) from e
+        # Sanitize error messages to avoid leaking internal paths.
+        # Coded exceptions keep their [code] prefix via .message.
+        raw = getattr(e, "message", str(e))
+        raise type(e)(sanitize_error_message(raw)) from e
 
     # Fetch any buffered output and store it in the client
     try:
@@ -359,7 +318,7 @@ async def execute_code(
     return result.result
 
 
-@mcp.tool
+@mcp.tool(annotations=TOOL_ANNOTATIONS["add_session"])
 async def add_session(host: str = "127.0.0.1", port: int = 7002) -> SessionInfo:
     """
     Manually add a Maya session at a specific host and port.

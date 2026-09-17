@@ -16,7 +16,7 @@ from maya_mcp_server.bootstrap import (
     get_bootstrap_code,
     get_helper_module_code,
 )
-from maya_mcp_server.security import sanitize_error_message
+from maya_mcp_server.security import PipelineError, sanitize_error_message
 from maya_mcp_server.types import (
     COMMUNICATION_PORT_MAX,
     COMMUNICATION_PORT_MIN,
@@ -41,19 +41,19 @@ DEFAULT_MAX_RETRIES = 2
 DEFAULT_RETRY_DELAY = 0.5  # seconds
 
 
-class MayaConnectionError(Exception):
-    """Error connecting to Maya."""
+class MayaConnectionError(PipelineError):
+    """Error connecting to Maya (host-side failure -> isError + code)."""
 
-    pass
-
-
-class MayaExecutionError(Exception):
-    """Error executing code in Maya."""
-
-    pass
+    code = "maya_unavailable"
 
 
-def raise_for_error(response: "CommandResponse") -> None:
+class MayaExecutionError(PipelineError):
+    """Error executing code in Maya (host-side failure -> isError + code)."""
+
+    code = "maya_execution"
+
+
+def raise_for_error(response: CommandResponse) -> None:
     """Raise MayaExecutionError if the response carries a Maya-side error.
 
     Single choke point so both server.execute_code and the scene-tool layer
@@ -693,19 +693,10 @@ class MayaClient(BaseMayaClient):
             MayaExecutionError: If module creation fails
         """
         response = await self._send_receive(
-            self.CREATE_MODULE_TEMPLATE, {"name": name, "code": code, "overwrite": overwrite}
+            self.CREATE_MODULE_TEMPLATE,
+            {"name": name, "code": code, "overwrite": overwrite},
         )
-
-
-
-
-
-
-
-
-
-
-
+        raise_for_error(response)
         return f"Module '{name}' created"
 
     async def ping(self) -> bool:

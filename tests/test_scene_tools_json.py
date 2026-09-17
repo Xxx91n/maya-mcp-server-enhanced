@@ -85,7 +85,9 @@ def tools(maya_env, monkeypatch):
     mock_mcp = MagicMock()
     fns = {}
 
-    def capture(fn):
+    def capture(fn=None, **_kwargs):
+        if fn is None:
+            return lambda f: capture(f)
         fns[fn.__name__] = fn
         return fn
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from maya_mcp_server.client import raise_for_error
+from maya_mcp_server.pipeline import TOOL_ANNOTATIONS
 from maya_mcp_server.cos_formatter import (
     format_assert_cos,
     format_inspect_cos,
@@ -179,7 +180,7 @@ def register_scene_tools(mcp: Any) -> None:
         mcp: FastMCP server instance.
     """
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_snapshot"])
     async def scene_snapshot(
         detail: str = "compact",
         format: str = "cos",
@@ -254,7 +255,7 @@ def register_scene_tools(mcp: Any) -> None:
 
         return output
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_inspect"])
     async def scene_inspect(
         target: str,
         include_neighbors: bool = True,
@@ -358,7 +359,7 @@ try:
         result["vertex_count"] = mesh_fn.numVertices
         result["face_count"] = mesh_fn.numPolygons
 except Exception as e:
-    result = {{"error": str(e)}}
+    result = {{"error": {{"code": "inspect_failed", "message": str(e)}}}}
 
 result
 """
@@ -399,7 +400,7 @@ result
         else:
             return format_inspect_cos(obj_data, neighbors=neighbors)
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_measure"])
     async def scene_measure(
         obj_a: str,
         obj_b: str,
@@ -445,7 +446,7 @@ result
         else:
             return format_measure_cos(result)
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_assert"])
     async def scene_assert(
         expectations: str,
         format: str = "cos",
@@ -498,7 +499,7 @@ result
     # P0: Spatial Constraint Validation
     # ============================================================
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_validate"])
     async def scene_validate(
         rules: str,
         format: str = "cos",
@@ -548,7 +549,7 @@ result
     # P0: Scene Checkpoint / Rollback
     # ============================================================
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_checkpoint"])
     async def scene_checkpoint(
         name: str | None = None,
         overwrite: bool = False,
@@ -587,7 +588,7 @@ result
         result = await _execute_scene_code(client, code, session_key, use_cache=False)
         return json.dumps(result, indent=2)
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_rollback"])
     async def scene_rollback(
         filename: str,
         discard_current_state: bool = False,
@@ -630,7 +631,7 @@ result
         mark_dirty(session_key)
         return json.dumps(result, indent=2)
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_checkpoint_list"])
     async def scene_checkpoint_list(
         session_key: str | None = None,
     ) -> str:
@@ -660,7 +661,7 @@ result
     # P1: Camera / Shot Planning
     # ============================================================
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["camera_create"])
     async def camera_create(
         target: str,
         shot_type: str = "medium",
@@ -699,7 +700,7 @@ result
         mark_dirty(session_key)
         return json.dumps(result, indent=2)
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["camera_orbit"])
     async def camera_orbit(
         center: str,
         radius: float = 500,
@@ -740,7 +741,7 @@ result
     # P1: Aesthetic Analysis
     # ============================================================
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_aesthetics"])
     async def scene_aesthetics(
         format: str = "json",
         session_key: str | None = None,
@@ -818,7 +819,7 @@ result
             return "\n".join(out)
 
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_review"])
     async def scene_review(
         checks: str = "all",
         format: str = "json",
@@ -866,7 +867,7 @@ result
                 lines.append(f"  [{sev}] {issue.get('check')}: {issue.get('msg')}")
             return "\n".join(lines)
 
-    @mcp.tool
+    @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_plan"])
     async def scene_plan(
         objective: str = "",
         auto_fix: bool = False,

@@ -178,7 +178,9 @@ def execute(code: str, result_type: str = "NONE") -> str:
     """Execute code and return result as JSON."""
     result = None
     error = None
-    # Use controlled namespace instead of globals() for security
+    # Dedicated exec namespace for result capture. NOT a security boundary:
+    # __builtins__ is fully present and code runs with Maya's privileges —
+    # the safety net is host-side (pattern scan, rate limit, audit).
     import sys
     context = {"__builtins__": __builtins__, "__name__": "__mcp_exec__", "__doc__": None}
     for mod_name in list(sys.modules.keys()):
@@ -398,14 +400,18 @@ class QtCommandServer:
                     return {
                         "id": req_id,
                         "result": None,
-                        "error": {"message": "create_module function not available"},
+                        "error": {"code": "unavailable",
+                                  "message": "create_module function not available"},
                     }
                 result_str = create_module_func(
                     params.get("name", ""), params.get("code", ""), params.get("overwrite", False)
                 )
                 result_obj = json.loads(result_str)
                 if "error" in result_obj:
-                    return {"id": req_id, "result": None, "error": {"message": result_obj["error"]}}
+                    err = result_obj["error"]
+                    if not isinstance(err, dict):
+                        err = {"message": str(err)}
+                    return {"id": req_id, "result": None, "error": err}
                 return {"id": req_id, "result": result_obj, "error": None}
 
             elif method == "ping":
@@ -415,7 +421,8 @@ class QtCommandServer:
                 return {
                     "id": req_id,
                     "result": None,
-                    "error": {"message": f"Unknown method: {method}"},
+                    "error": {"code": "unknown_method",
+                              "message": f"Unknown method: {method}"},
                 }
         except Exception as e:
             return {
@@ -468,6 +475,8 @@ def stop_qt_server() -> str:
 def get_qt_server_port() -> str:
     """Get the port of the running Qt server."""
     if _qt_server is None:
-        return json.dumps({"error": "Server not running"})
+        return json.dumps({
+            "error": {"code": "server_not_running", "message": "Server not running"}
+        })
     return json.dumps({"port": _qt_server.port})
 

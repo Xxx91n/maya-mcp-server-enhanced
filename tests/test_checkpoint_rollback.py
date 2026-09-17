@@ -70,8 +70,8 @@ class TestCheckpointSnapshot:
 
     def test_name_whitelist_rejects(self, saved_scene):
         res = saved_scene.module.save_checkpoint("a/b")
-        assert "error" in res
-        assert res["suggestion"] == "a_b"
+        assert res["error"]["code"] == "invalid_name"
+        assert res["error"]["suggestion"] == "a_b"
 
     def test_name_suggestion_not_auto_applied(self, saved_scene, tmp_path):
         res = saved_scene.module.save_checkpoint("a/b")
@@ -92,7 +92,7 @@ class TestCheckpointSnapshot:
     def test_same_name_rejected_by_default(self, saved_scene):
         assert "error" not in saved_scene.module.save_checkpoint("x")
         res = saved_scene.module.save_checkpoint("x")
-        assert "error" in res
+        assert res["error"]["code"] == "checkpoint_exists"
         assert res.get("existing") == "cp_x.ma"
 
     def test_overwrite_preserves_old_file(self, saved_scene, tmp_path):
@@ -112,18 +112,18 @@ class TestCheckpointSnapshot:
     def test_checkpoints_path_is_file(self, saved_scene, tmp_path):
         (tmp_path / "checkpoints").write_text("not a dir")
         res = saved_scene.module.save_checkpoint("x")
-        assert "error" in res
+        assert res["error"]["code"] == "path_not_directory"
 
     def test_checkpoints_dir_unwritable(self, saved_scene, monkeypatch):
         monkeypatch.setattr(os, "access", lambda p, m: False)
         res = saved_scene.module.save_checkpoint("x")
-        assert "error" in res
+        assert res["error"]["code"] == "dir_not_writable"
 
     def test_untitled_default_errors(self, untitled_scene):
         res = untitled_scene.module.save_checkpoint()
-        assert "error" in res
+        assert res["error"]["code"] == "untitled_scene"
         # error text must be a self-healing instruction
-        err_l = res["error"].lower()
+        err_l = res["error"]["message"].lower()
         assert "name" in err_l or "ad-hoc" in err_l or "adhoc" in err_l
 
     def test_untitled_adhoc_snapshot(self, untitled_scene, tmp_path):
@@ -198,26 +198,28 @@ class TestRollback:
     def test_rollback_rejects_traversal(self, saved_scene):
         for bad in ["../x.ma", "..\\x.ma", "sub/cp_x.ma", "cp_../../x.ma"]:
             res = saved_scene.module.rollback_to_checkpoint(bad)
-            assert "error" in res, bad
+            assert res["error"]["code"] == "invalid_filename", bad
 
     def test_rollback_rejects_non_checkpoint_name(self, saved_scene):
         res = saved_scene.module.rollback_to_checkpoint("random.ma")
-        assert "error" in res
+        assert res["error"]["code"] == "invalid_filename"
 
     def test_rollback_missing_snapshot(self, saved_scene):
         res = saved_scene.module.rollback_to_checkpoint("cp_ghost.ma")
-        assert "error" in res
-        assert "快照已丢失" in res["error"]
-        assert "missing" in res["error"].lower()  # missing, not corrupt
+        assert res["error"]["code"] == "snapshot_lost"
+        assert "快照已丢失" in res["error"]["message"]
+        assert "missing" in res["error"]["message"].lower()  # missing, not corrupt
+        assert "header" not in res["error"]["message"].lower()
 
     def test_rollback_corrupt_snapshot(self, saved_scene, tmp_path):
         cp_dir = tmp_path / "checkpoints"
         cp_dir.mkdir()
         (cp_dir / "cp_bad.ma").write_text("garbage without header")
         res = saved_scene.module.rollback_to_checkpoint("cp_bad.ma")
-        assert "error" in res
-        assert "快照已丢失" in res["error"]
-        assert "header" in res["error"].lower() or "corrupt" in res["error"].lower()
+        assert res["error"]["code"] == "snapshot_lost"
+        assert "快照已丢失" in res["error"]["message"]
+        msg = res["error"]["message"].lower()
+        assert "header" in msg or "corrupt" in msg
 
     def test_auto_snapshot_failure_aborts(self, saved_scene, monkeypatch):
         saved_scene.scene.add_mesh("GEO_a")
@@ -234,7 +236,7 @@ class TestRollback:
         monkeypatch.setattr(saved_scene.cmds, "file", boom)
         saved_scene.scene.file_calls.clear()
         rb = saved_scene.module.rollback_to_checkpoint("cp_v1.ma")
-        assert "error" in rb
+        assert rb["error"]["code"] == "auto_snapshot_failed"
         assert rb.get("aborted") is True, rb
         opened = [c for c in saved_scene.scene.file_calls if c["kwargs"].get("open")]
         assert not opened, "checkpoint must NOT be opened when auto snapshot fails"
@@ -291,6 +293,7 @@ class TestRollback:
         assert os.path.dirname(rb["safety_snapshot"]) == str(
             tmp_path / "ws" / "checkpoints"
         )
+        assert os.path.exists(rb["safety_snapshot"])
         assert os.path.basename(rb["safety_snapshot"]).startswith(
             "cp_auto_before_rollback_"
         )
@@ -308,9 +311,9 @@ class TestRollback:
 
         monkeypatch.setattr(saved_scene.cmds, "file", boom)
         rb = saved_scene.module.rollback_to_checkpoint("cp_v1.ma")
-        assert "error" in rb
+        assert rb["error"]["code"] == "open_failed"
         assert "scene_name_after" in rb, "half-state must report scene_name_after"
-        assert "scene_snapshot" in str(rb.get("suggestion", "")), (
+        assert "scene_snapshot" in rb["error"].get("suggestion", ""), (
             "must suggest scene_snapshot to rebuild context"
         )
 
@@ -360,3 +363,44 @@ class TestListCheckpoints:
     def test_list_empty_when_no_dir(self, saved_scene):
         res = saved_scene.module.list_checkpoints()
         assert res == {"checkpoints": [], "count": 0}
+
+# ------------------------------------------------------------
+# D-019 error contract: {error: {code, message, suggestion?}}
+# ------------------------------------------------------------
+
+class TestDomainErrorShape:
+    """Every Maya-domain error return carries the D-019 structured object."""
+
+    def _check(self, res):
+        assert isinstance(res.get("error"), dict), res
+        err = res["error"]
+        assert isinstance(err["code"], str) and err["code"]
+        assert isinstance(err["message"], str) and err["message"]
+        if "suggestion" in err:
+            assert isinstance(err["suggestion"], str)
+        return err
+
+    def test_save_errors(self, saved_scene):
+        for res in (
+            saved_scene.module.save_checkpoint("a/b"),
+        ):
+            self._check(res)
+        saved_scene.module.save_checkpoint("x")
+        self._check(saved_scene.module.save_checkpoint("x"))
+
+    def test_rollback_errors(self, saved_scene):
+        for bad in ("cp_ghost.ma", "nope.ma"):
+            self._check(saved_scene.module.rollback_to_checkpoint(bad))
+
+    def test_untitled_error(self, untitled_scene):
+        self._check(untitled_scene.module.save_checkpoint())
+
+    def test_measure_error(self, saved_scene):
+        self._check(saved_scene.module.measure("no_a", "no_b"))
+
+    def test_camera_shot_errors(self, saved_scene):
+        self._check(
+            saved_scene.module.create_camera_shot("x", shot_type="nope")
+        )
+        self._check(saved_scene.module.create_camera_shot("missing_target"))
+
