@@ -1,11 +1,11 @@
-# Handoff — maya-mcp-grill 下一轮任务书（rev7）
+# Handoff — maya-mcp-grill 下一轮任务书（rev8）
 
-> 生成时间：2026-09-17（round6 grill 定稿：blender-mcp 对标 + 任务重排）。供任意子 Agent 接手；结论以决策账本为唯一真源。
+> 生成时间：2026-09-17（T-05 完成交棒）。供任意子 Agent 接手；结论以决策账本为唯一真源。
 
 ## 本轮验收事实（非计划）
 
-- **T-04 通过**：统一安全管线 + 威胁模型 + connection_guide 收口 + D-019 双层错误契约。分支 fix/t04-security-pipeline（61f81af+ae0db34+56f565a），审计链 reports/2026-09-17-audit-t04.md → 返修 → audit-t04-closure.md（通过）。
-- **基线（勿劣化）**：pytest 457+3skip（本轮复验一致）；ruff src=174/repo=237；mypy=221；compileall+wheel+stdio(18工具四hint)+audit JSONL 全绿。
+- **T-05 通过**：Qt 连接层重写完成——readyRead 事件驱动 + 逐连接 FIFO 队列 + uint32-BE 分帧(16MiB) + typed error(MayaUnavailableError/MayaTimeoutError) + 0.5/1/2s 退避 + localhost-only 双重强制 + health 探针 + _failed_ports 去重；add_session bootstrap 返回值 bug 已修；GUI 移除 temp-file 注入(native/headless 保留)；顺带清单全核销(5MB 上限接线/write_module 死响应/__main__×2/7001 对齐)。分支 fix/t05-qt-channel(commit kyn)。报告 reports/2026-09-17-t05-implementation.md。
+- **基线（勿劣化）**：pytest **513+3skip**；ruff src=174/repo=237；mypy=221；compileall+wheel+stdio(18工具四hint ping audit JSONL)全绿。
 - **锐评复核（round6 实物复验）**：rui.txt 全条目有归属无孤儿；T-04 核销项实证为真（marker-block :45/confirm :392/真 token bucket/pipeline 收口/helper 诚实注释 :182）。
 - **round6 决策**：D-020（对标三档能力矩阵，①被 D-021 修订）→ D-021（任务重排 C 版）→ D-022（Codex Skills 处置 C 微调版）。落地 ADR-0012。
 
@@ -38,19 +38,12 @@ T-06 审美引擎单源化     ← 内部债，在 T-10b 护栏下做
 T-07 注册表+绞杀拆分    ← 内部债
 ```
 
-## 下一任务：T-05 Qt 连接层重写（D-013/D-014c，ADR-0010）
-
-- readyRead 事件驱动 + 逐连接命令队列 + 长度前缀分帧（8-16MiB 帧上限）+ typed error + 指数退避(0.5/1/2s) + localhost-only 强制 + 健康探针 + _failed_ports 去重
-- 修 add_session 丢弃 bootstrap 返回值 bug（session_manager.py:323 实证仍在）；GUI 会话移除 temp-file 注入；native 降为 bootstrap/headless 最小通道并文档化
-- 顺带清单：StreamWriter 5MB 上限接线（helper :35 仍孤儿）、client.py write_module 死响应、__main__ 调试脚本×2 移出库代码（client.py:867/session_manager.py:374）、add_session 默认端口 7002→7001 对齐文档（server.py:337）
-- 注意：client.py/session_manager.py 现在抛 PipelineError 子类（D-019），重写时保持 code 语义不丢
-
-## T-08 预热 spec（视觉闭环，D-002/D-003a/D-020②/D-021）
+## 下一任务：T-08 视觉闭环（D-002/D-003a/D-020②/D-021）
 
 - 两工具拆分已定：scene_viewport_snapshot（高频便宜）+ scene_render_preview（低分辨按需）
-- 对 T-05 仅软依赖：base64+尺寸限幅可在现有传输先行，分帧红利后收；分帧不进 DoD（blender-mcp 同款实证）
-- headless 会话无视口→显式能力错误（按 D-019 契约：宿主侧 coded 异常 isError / 域侧 {error:{code,message,suggestion}}——内定时选域侧语义，未决项 #1 届时核销）
+- T-05 已交付分帧红利：base64 视口图走 16MiB 帧通道无 temp-file 负担；headless 会话无视口→显式能力错误（D-019 契约：内定时选域侧语义，未决项 #1 届时核销）
 - 传播级一等公民：发布演示素材依此产出
+- 注意 seam：截图能力挂在 client.framed_channel 上区分 GUI/headless；Maya 侧用 MGlobal.activeView + OGS 或 cmds.getAttr 屏幕捕获路径，先调研最小实现
 
 ## 其后任务速览
 
@@ -69,7 +62,7 @@ T-07 注册表+绞杀拆分    ← 内部债
 ## 登记债（碰到再修，勿认领）
 
 - _suggest_layout pair-window 截断未披露；checked/skipped 三处异构；orbit_cam/shot_cam 无 CAM_ 前缀；玄学评分语义重设计（D-014d）
-- test_security.py:389 I001；test_scene_tools_json.py AsyncMock never-awaited RuntimeWarning；server.py port 校验 1<port vs 文案 1-65535 vs security.py 0<port 不一致；connection_guide 版本扫描复制粘贴三连
+- test_security.py:389 I001；test_scene_tools_json.py AsyncMock never-awaited RuntimeWarning；connection_guide 版本扫描复制粘贴三连
 
 ## 未决 spec 项（内定归属，非阻塞）
 
@@ -77,7 +70,7 @@ T-07 注册表+绞杀拆分    ← 内部债
 
 ## suggested skills
 
-- 执行：implement, tdd, diagnosing-bugs（T-05 连接层重写）
+- 执行：implement, tdd, research/atomcode-research（T-08 视觉闭环：Maya viewport 捕获路径需调研）
 - 评审：code-review（每任务完成后双轴审计，同 T-03/T-04 先例）
 - 调研：research / atomcode-research（dcc-mcp-maya 竞品深挖可选）
 - 收尾：handoff（再交接）、neat-freak
