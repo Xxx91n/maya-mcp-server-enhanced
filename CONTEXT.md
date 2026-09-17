@@ -93,10 +93,17 @@ _Avoid_: 覆写安装
 _Avoid_: 大爆炸重构
 
 **stub 层**:
-CI 上替代 maya.cmds/OpenMaya 的自建假实现；数学语义必须正确（尤其 8 角点世界 bbox），否则假绿。
+CI 上替代 maya.cmds/OpenMaya 的自建假实现；数学语义必须正确（尤其 8 角点世界 bbox），否则假绿。定位=契约测试层——验证代码与 maya.cmds 契约的往返逻辑（edit 真改状态、query 读回同值），像素/行为正确性归 mayapy 档；GUI 面（panel/lookThru/playblast/OpenMayaUI）以 stateful-fake 扩展，禁像素断言。
 
 **mayapy 档**:
-可选的真机 Maya 测试层，本地手动跑，文档化，不卡 CI。
+可选的真机 Maya 测试层，本地手动跑，文档化，不卡 CI。与 stub 层不同 pytest 调用（禁混跑）。
+
+**净零副作用 (net-zero side effect)**:
+工具执行中可瞬时改变宿主状态（视口相机/时间线），但必须 try/finally 恢复，使成功与失败路径的终态==入前快照；readOnlyHint:true 的声称以此为成立前提，瞬时改变须在工具描述中披露。
+_Avoid_: 就地改动
+
+**文档传播矩阵 (propagation matrix)**:
+文档同步边界规则——commit 只修"本次变更使其失真"的文档行（触碰的工具数/清单/instructions/架构表）；与变更无关的既有错误不顺手修（sweep 反模式），但须在 PR 描述中列出交文档任务。
 
 **双层错误契约**:
 工具错误的两个正交通道——宿主侧失败（校验/限流/连接/管线拒绝）经 MCP isError 上报；Maya 侧域结果经统一 `{error:{code,message,suggestion?}}` 对象返回。区分“调用失败”与“调用成功但域内未过”。
