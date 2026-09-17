@@ -108,3 +108,11 @@ _Avoid_: 就地改动
 **双层错误契约**:
 工具错误的两个正交通道——宿主侧失败（校验/限流/连接/管线拒绝）经 MCP isError 上报；Maya 侧域结果经统一 `{error:{code,message,suggestion?}}` 对象返回。区分“调用失败”与“调用成功但域内未过”。
 _Avoid_: 全量信封
+
+**三层命名**:
+Python 包的三个独立命名面——dist 名（PyPI 货架标签，本项目=mcp-for-maya）、import 名（代码地名，=maya_mcp_server 不动）、script 名（uvx 命令入口，=mcp-for-maya，旧名仅作兼容 alias）。dist 与 import 分叉是 PyPA 认可的惯例，fork 是其常见成因。
+_Avoid_: 包名（歧义）
+
+**人工确认门**:
+一次性高副作用公开动作的人工批准边界——repo 改名、push main、建 tag、建 Release、PyPI 发布、改 secret 须经用户执行或逐条批准；agent 仅备命令清单与影响面列表。低风险可逆动作（文件/分支/issues/PR）agent 自主。
+_Avoid_: 自动发布
