@@ -18,7 +18,6 @@ from maya_mcp_server.client import (
 from maya_mcp_server.types import (
     CommandResponse,
     OutputBuffer,
-    PortType,
     ResultType,
     SessionInfo,
 )
@@ -674,30 +673,77 @@ class TestMayaClientWriteModuleDeadResponse:
 
 
 class TestBootstrapFallback:
-    """D-013: headless Maya (no Qt event loop) must degrade to a native
-    commandPort instead of failing when the Qt server cannot start."""
+    """D-013 headless fallback, pinned to REAL wire shapes.
+
+    On the native commandPort, start_qt_server()'s JSON payload surfaces as:
+      - success: CommandResponse(result={"port": N, "already_running": b})
+      - failure: CommandResponse(result=None, error={...})  -- only reachable
+        because bootstrap calls _send_receive(raise_on_error=False); the mock
+        below asserts that contract.
+    """
 
     @pytest.mark.asyncio
-    async def test_qt_start_failure_falls_back_to_native(
+    async def test_qt_start_error_response_falls_back_to_native(
         self, maya_client: MayaClient, mocker
     ) -> None:
-        calls: list[str] = []
+        calls: list[tuple[str, bool]] = []
 
         async def fake_send(method, params=None, raise_on_error=True):
-            calls.append(method)
+            calls.append((method, raise_on_error))
             if method == maya_client.START_QT_SERVER:
+                # real wire: {"error": {...}} JSON -> CommandResponse(error=dict)
                 return CommandResponse(
                     result=None,
-                    error={"type": "RuntimeError", "message": "Qt not available"},
+                    error={
+                        "code": "qt_unavailable_headless",
+                        "message": "Qt event loop unavailable (headless Maya)",
+                    },
                 )
             if method == maya_client.START_COMMAND_PORT:
-                return CommandResponse(result={"success": True, "port": params["port"]}, error=None)
+                return CommandResponse(
+                    result={"success": True, "port": params["port"]}, error=None
+                )
             return CommandResponse(result=None, error=None)
 
         mocker.patch.object(maya_client, "_bootstrap", new=AsyncMock())
         mocker.patch.object(maya_client, "_send_receive", side_effect=fake_send)
+        mocker.patch("maya_mcp_server.client.MayaClient.connect", new=AsyncMock())
+        mocker.patch("maya_mcp_server.client.asyncio.sleep", new=AsyncMock())
+
+        new_client = await maya_client.bootstrap(client_type="qt")
+
+        assert type(new_client) is MayaClient
+        assert new_client.framed_channel is False
+        # contract pin: the Qt start probe must not raise on domain errors
+        assert (maya_client.START_QT_SERVER, False) in calls
+        assert maya_client.START_COMMAND_PORT in [m for m, _ in calls]
+
+    @pytest.mark.asyncio
+    async def test_qt_zombie_channel_falls_back_to_native(
+        self, maya_client: MayaClient, mocker
+    ) -> None:
+        """listen() succeeding without an event loop = zombie channel: TCP
+        connect works but readyRead never fires -> ping False -> fallback."""
+
+        async def fake_send(method, params=None, raise_on_error=True):
+            if method == maya_client.START_QT_SERVER:
+                return CommandResponse(
+                    result={"port": 55_501, "already_running": False}, error=None
+                )
+            if method == maya_client.START_COMMAND_PORT:
+                return CommandResponse(
+                    result={"success": True, "port": params["port"]}, error=None
+                )
+            return CommandResponse(result=None, error=None)
+
+        mocker.patch.object(maya_client, "_bootstrap", new=AsyncMock())
+        mocker.patch.object(maya_client, "_send_receive", side_effect=fake_send)
+        mocker.patch("maya_mcp_server.client.MayaClient.connect", new=AsyncMock())
+        mocker.patch("maya_mcp_server.client.MayaQtClient.connect", new=AsyncMock())
+        # The zombie: TCP connected, protocol dead -> ping returns False
         mocker.patch(
-            "maya_mcp_server.client.MayaClient.connect", new=AsyncMock()
+            "maya_mcp_server.client.MayaQtClient.ping",
+            new=AsyncMock(return_value=False),
         )
         mocker.patch("maya_mcp_server.client.asyncio.sleep", new=AsyncMock())
 
@@ -705,8 +751,6 @@ class TestBootstrapFallback:
 
         assert type(new_client) is MayaClient
         assert new_client.framed_channel is False
-        assert maya_client.START_QT_SERVER in calls
-        assert maya_client.START_COMMAND_PORT in calls
 
     @pytest.mark.asyncio
     async def test_qt_success_uses_framed_client(
@@ -716,13 +760,17 @@ class TestBootstrapFallback:
 
         async def fake_send(method, params=None, raise_on_error=True):
             if method == maya_client.START_QT_SERVER:
-                return CommandResponse(result={"port": qt_port}, error=None)
+                return CommandResponse(
+                    result={"port": qt_port, "already_running": False}, error=None
+                )
             return CommandResponse(result=None, error=None)
 
         mocker.patch.object(maya_client, "_bootstrap", new=AsyncMock())
         mocker.patch.object(maya_client, "_send_receive", side_effect=fake_send)
+        mocker.patch("maya_mcp_server.client.MayaQtClient.connect", new=AsyncMock())
         mocker.patch(
-            "maya_mcp_server.client.MayaQtClient.connect", new=AsyncMock()
+            "maya_mcp_server.client.MayaQtClient.ping",
+            new=AsyncMock(return_value=True),
         )
         mocker.patch("maya_mcp_server.client.asyncio.sleep", new=AsyncMock())
 

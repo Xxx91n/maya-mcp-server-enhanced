@@ -20,6 +20,9 @@ from maya_mcp_server.utils import get_maya_listening_ports, is_loopback_host
 
 logger = logging.getLogger(__name__)
 
+# Config-port bootstrap timeout: bootstrap + Qt start can take a while
+_CONFIG_PORT_TIMEOUT = 60.0
+
 
 class SessionManager:
     """Manages multiple Maya session connections."""
@@ -193,7 +196,7 @@ class SessionManager:
             MayaClient if successful, None otherwise
         """
         # Use longer timeout to support long-running operations
-        client = MayaClient(host, port, timeout=60.0)
+        client = MayaClient(host, port, timeout=_CONFIG_PORT_TIMEOUT)
 
         try:
             await client.connect()
@@ -362,7 +365,7 @@ class SessionManager:
         if config_key in self._sessions:
             return self._sessions[config_key]
 
-        client = MayaClient(host, port, timeout=60.0)
+        client = MayaClient(host, port, timeout=_CONFIG_PORT_TIMEOUT)
         try:
             await client.connect()
             # bootstrap() returns a NEW client on the dedicated working
@@ -396,6 +399,13 @@ class SessionManager:
         if client is None:
             return False
         try:
+            # Framed (Qt) clients expose a richer health probe (D-013);
+            # native clients fall back to ping.
+            if getattr(client, "framed_channel", False):
+                health_fn = getattr(client, "health", None)
+                if health_fn is not None:
+                    health = await health_fn()
+                    return isinstance(health, dict) and health.get("status") == "ok"
             return await client.ping()
         except Exception as e:
             logger.debug(f"Health check failed for {session_key}: {e}")

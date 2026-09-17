@@ -4,8 +4,8 @@
 
 ## 本轮验收事实（非计划）
 
-- **T-05 通过**：Qt 连接层重写完成——readyRead 事件驱动 + 逐连接 FIFO 队列 + uint32-BE 分帧(16MiB) + typed error(MayaUnavailableError/MayaTimeoutError) + 0.5/1/2s 退避 + localhost-only 双重强制 + health 探针 + _failed_ports 去重；add_session bootstrap 返回值 bug 已修；GUI 移除 temp-file 注入(native/headless 保留)；顺带清单全核销(5MB 上限接线/write_module 死响应/__main__×2/7001 对齐)。分支 fix/t05-qt-channel(commit kyn)。报告 reports/2026-09-17-t05-implementation.md。
-- **基线（勿劣化）**：pytest **513+3skip**；ruff src=174/repo=237；mypy=221；compileall+wheel+stdio(18工具四hint ping audit JSONL)全绿。
+- **T-05 实施完成，审计返修一轮，待复审**：首轮审计(audit-t05)裁定打回返工——F-1 headless 回退死代码+僵尸会话(两层失效)、F-2 ruff repo +1 失实、F-3 Qt 路径域 code 丢失；三项已全修(双端防御：helper 事件循环检测 qt_unavailable_headless + client liveness gate ping≤5s；raise_on_error=False 契约钉；域 code 编入异常文本)。O-1/O-3/O-4/O-6 顺手核销，O-2/O-5 已入登记债。分支 fix/t05-qt-channel(kyn=feat+kpt=docs+返修 commit)。报告 reports/2026-09-17-t05-implementation.md（含返修附录）。
+- **基线（勿劣化）**：pytest **517+3skip**；ruff src=174/repo=237；mypy=221；compileall+wheel+stdio(18工具四hint ping audit JSONL)全绿。
 - **锐评复核（round6 实物复验）**：rui.txt 全条目有归属无孤儿；T-04 核销项实证为真（marker-block :45/confirm :392/真 token bucket/pipeline 收口/helper 诚实注释 :182）。
 - **round6 决策**：D-020（对标三档能力矩阵，①被 D-021 修订）→ D-021（任务重排 C 版）→ D-022（Codex Skills 处置 C 微调版）。落地 ADR-0012。
 
@@ -63,6 +63,7 @@ T-07 注册表+绞杀拆分    ← 内部债
 
 - _suggest_layout pair-window 截断未披露；checked/skipped 三处异构；orbit_cam/shot_cam 无 CAM_ 前缀；玄学评分语义重设计（D-014d）
 - test_security.py:389 I001；test_scene_tools_json.py AsyncMock never-awaited RuntimeWarning；connection_guide 版本扫描复制粘贴三连
+- ADR-0010 后果项“版本感知响应规范化”未实现（audit-t05 O-2）；_probe_port 的 MayaConnectionError 分支 socket 泄漏（O-5，基线既有）
 
 ## 未决 spec 项（内定归属，非阻塞）
 

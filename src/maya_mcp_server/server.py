@@ -28,6 +28,7 @@ from maya_mcp_server.security import (
 )
 from maya_mcp_server.session_manager import SessionManager
 from maya_mcp_server.types import ClientType, OutputBuffer, ResultType, SessionInfo
+from maya_mcp_server.utils import is_loopback_host
 
 
 logger = logging.getLogger(__name__)
@@ -357,8 +358,8 @@ async def add_session(host: str = "127.0.0.1", port: int = 7001) -> SessionInfo:
     if not (0 < port < 65536):
         raise InputValidationError(f"Invalid port {port}: must be 1-65535")
 
-    # Block non-localhost connections by default
-    if host not in ("127.0.0.1", "localhost", "::1"):
+    # Block non-localhost connections by default (single loopback source)
+    if not is_loopback_host(host):
         if not _security_config.allow_remote_connections:
             raise InputValidationError(
                 f"Remote connection to {host} blocked for security. "

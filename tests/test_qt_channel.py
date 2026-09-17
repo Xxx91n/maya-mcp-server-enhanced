@@ -546,6 +546,21 @@ class TestQtServerIntegration:
         finally:
             server.stop()
 
+    def test_start_qt_server_with_event_loop(self):
+        """Inverse pin for the headless guard: with a live QCoreApplication,
+        start_qt_server must actually bind (not report qt_unavailable)."""
+        QtCore = pytest.importorskip("PySide6.QtCore")  # noqa: N806
+
+        app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+        assert app is not None
+        try:
+            out = json.loads(helper.start_qt_server(0))
+            assert "error" not in out
+            assert out["port"] > 0
+        finally:
+            json.loads(helper.stop_qt_server())
+        assert helper._qt_server is None
+
 
 # ============================================================================
 # scene_tools injection routing: framed GUI channel vs native headless
@@ -601,3 +616,53 @@ def test_add_session_default_port_is_7001():
 
     sig = inspect.signature(server.add_session.fn)
     assert sig.parameters["port"].default == 7001
+
+
+class TestHeadlessGuard:
+    """F-1B: start_qt_server must refuse when no Qt event loop exists
+    (mayapy ships PySide6 and listen() would succeed, yielding a zombie
+    channel that accepts TCP but never dispatches readyRead)."""
+
+    def test_no_event_loop_returns_domain_error(self, monkeypatch):
+        monkeypatch.setattr(
+            helper, "QCoreApplication",
+            SimpleNamespace(instance=staticmethod(lambda: None)),
+        )
+        monkeypatch.setattr(helper, "_qt_server", None)
+        out = json.loads(helper.start_qt_server(0))
+        assert "error" in out
+        assert out["error"]["code"] == "qt_unavailable_headless"
+        assert "suggestion" in out["error"]
+        assert helper._qt_server is None  # nothing was bound
+
+
+class TestQtSendReceiveDomainCode:
+    """F-3: wire domain codes must survive into MayaExecutionError text."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_method_raises_with_code(self):
+        client = MayaQtClient(port=0)
+
+        async def peer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+            hdr = await reader.readexactly(helper.FRAME_HEADER_SIZE)
+            n = int.from_bytes(hdr, "big")
+            await reader.readexactly(n)
+            body = json.dumps({
+                "id": "req-1",
+                "result": None,
+                "error": {"code": "unknown_method", "message": "Unknown method: nope"},
+            }).encode()
+            writer.write(helper.encode_frame(body))
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(peer, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            client._reader, client._writer = reader, writer
+            with pytest.raises(MayaExecutionError, match="unknown_method"):
+                await client._send_receive("nope")
+        finally:
+            server.close()
+            await server.wait_closed()

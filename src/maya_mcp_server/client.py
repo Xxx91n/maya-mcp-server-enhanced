@@ -52,6 +52,10 @@ DEFAULT_RETRY_DELAY = 0.5  # seconds
 # Connect retry schedule (D-013): exponential backoff 0.5s / 1s / 2s
 CONNECT_RETRY_DELAYS = (0.5, 1.0, 2.0)
 
+# Post-connect liveness gate: a Qt server in headless Maya can accept TCP
+# while readyRead never fires; bound the probe so bootstrap fails fast.
+QT_PROBE_TIMEOUT = 5.0  # seconds
+
 
 class MayaUnavailableError(PipelineError):
     """Maya channel unreachable (host-side failure -> isError + code)."""
@@ -75,19 +79,40 @@ class MayaExecutionError(PipelineError):
     code = "maya_execution"
 
 
+def _domain_error_text(error: Any) -> str:
+    """Render a wire error as "code: message" (D-019).
+
+    Wire errors are dual-schema: known domain errors carry {"code": ...}
+    and exceptions carry {"type", "traceback"}. The code must survive into
+    the exception text so both channels match native write_module's
+    "code: message" format.
+    """
+    if isinstance(error, dict):
+        code = error.get("code")
+        msg = error.get("message", "Unknown error")
+        if code:
+            return f"{code}: {msg}"
+        return str(msg)
+    return str(error)
+
+
 def raise_for_error(response: CommandResponse) -> None:
     """Raise MayaExecutionError if the response carries a Maya-side error.
 
     Single choke point so both server.execute_code and the scene-tool layer
-    surface errors identically (message sanitized, type + traceback kept).
+    surface errors identically (message sanitized, code/type + traceback kept).
     """
     err = getattr(response, "error", None)
     if not err:
         return
-    etype = err.get("type", "Error") if isinstance(err, dict) else "Error"
-    emsg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-    etb = err.get("traceback", "") if isinstance(err, dict) else ""
-    detail = f"Maya execution error ({etype}): {emsg}"
+    if isinstance(err, dict) and err.get("code"):
+        detail = f"{err['code']}: {err.get('message', 'Unknown error')}"
+        etb = err.get("traceback", "")
+    else:
+        etype = err.get("type", "Error") if isinstance(err, dict) else "Error"
+        emsg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+        etb = err.get("traceback", "") if isinstance(err, dict) else ""
+        detail = f"Maya execution error ({etype}): {emsg}"
     if etb:
         detail += "\n" + etb
     raise MayaExecutionError(sanitize_error_message(detail))
@@ -362,6 +387,7 @@ class BaseMayaClient(ABC):
 
         Raises:
             MayaConnectionError: If not connected
+            MayaTimeoutError: If the response deadline is exceeded
             MayaExecutionError: If communication fails or raise_on_error is True and command errors
         """
         ...
@@ -590,12 +616,64 @@ class MayaClient(BaseMayaClient):
             # Unlike the commandPort, the qt server can handle multiple clients on the same port.
             # Therefore, the port returned by _send_receive might be different than requested.
             logger.info(f"Starting Qt server on port {new_port}")
-            result = await self._send_receive(self.START_QT_SERVER, {"port": new_port})
-            qt_error = result.error
-            if qt_error is None and isinstance(result.result, dict):
-                qt_error = result.result.get("error")
+            # raise_on_error=False: start_qt_server reports failures as a JSON
+            # {"error": ...} payload on the wire, not an exception (F-1 fix).
+            result = await self._send_receive(
+                self.START_QT_SERVER, {"port": new_port}, raise_on_error=False
+            )
+            qt_error: Any = result.error
+            qt_port = None
+            # The native channel may wrap the JSON payload in result (dict or str)
+            payload = result.result
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except (json.JSONDecodeError, TypeError):
+                    payload = None
+            if isinstance(payload, dict):
+                qt_error = qt_error or payload.get("error")
+                qt_port = payload.get("port")
 
-            if qt_error:
+            qt_client: MayaQtClient | None = None
+            if not qt_error:
+                if qt_port:
+                    new_port = qt_port
+                logger.info(f"Qt server started on port {new_port}")
+
+                # Wait a moment for the port to start listening
+                await asyncio.sleep(0.5)
+
+                logger.info(f"Connecting to dedicated port {new_port}...")
+                qt_client = MayaQtClient(
+                    host=self.host,
+                    port=new_port,
+                    timeout=self.timeout,
+                    buffer_size=self.buffer_size,
+                )
+                try:
+                    await qt_client.connect()
+                    # Liveness gate (D-013): in headless Maya a Qt listener can
+                    # accept TCP while readyRead never fires - a zombie channel.
+                    # Probe the framed protocol before registering the session.
+                    alive = await asyncio.wait_for(
+                        qt_client.ping(), timeout=QT_PROBE_TIMEOUT
+                    )
+                    if not alive:
+                        raise MayaUnavailableError(
+                            "Qt server accepted the connection but does not respond"
+                        )
+                except Exception as e:
+                    logger.warning(f"Qt channel unusable ({e}); falling back")
+                    qt_error = e
+                    try:
+                        await qt_client.disconnect()
+                    except Exception:
+                        pass
+                    qt_client = None
+
+            if qt_client is not None:
+                new_client = qt_client
+            else:
                 # Headless Maya (mayapy) has no Qt event loop. Per D-013 the
                 # native commandPort is the minimal fallback working channel
                 # there - it never promises large payloads.
@@ -612,28 +690,13 @@ class MayaClient(BaseMayaClient):
                     timeout=self.timeout,
                     buffer_size=self.buffer_size,
                 )
-            else:
-                # The port may differ if the Qt server was already running
-                if result.result and isinstance(result.result, dict):
-                    new_port = result.result.get("port", new_port)
-                logger.info(f"Qt server started on port {new_port}")
-
-                # Wait a moment for the port to start listening
-                await asyncio.sleep(0.5)
-
-                logger.info(f"Connecting to dedicated port {new_port}...")
-                new_client = MayaQtClient(
-                    host=self.host,
-                    port=new_port,
-                    timeout=self.timeout,
-                    buffer_size=self.buffer_size,
-                )
         else:
             raise InputValidationError(
                 f"Unknown client_type {client_type!r}"
             )
-        # Connect to the new dedicated port
-        await new_client.connect()
+        # Connect to the new dedicated port (the Qt branch already probed it)
+        if not new_client.is_connected:
+            await new_client.connect()
         logger.info(f"Connected to dedicated port {new_port}")
         return new_client
 
@@ -837,12 +900,10 @@ class MayaQtClient(BaseMayaClient):
                         f"Response ID mismatch: expected {request_id}, got {response.get('id')}"
                     )
 
-                # Check for error
+                # Check for error - keep the wire code in the message
+                # ("code: message", same as the native write_module path, D-019)
                 if raise_on_error and response.get("error"):
-                    error = response["error"]
-                    if isinstance(error, dict):
-                        raise MayaExecutionError(f"{error.get('message', 'Unknown error')}")
-                    raise MayaExecutionError(str(error))
+                    raise MayaExecutionError(_domain_error_text(response["error"]))
 
                 # Return CommandResponse
                 return CommandResponse(result=response.get("result"), error=response.get("error"))

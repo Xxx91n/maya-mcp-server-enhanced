@@ -34,7 +34,7 @@
 |------|------|------|
 | 单元测试 | `python -m pytest tests/ -q` | **513 passed, 3 skipped**(基线 457 → +56 回归) |
 | Ruff src | `python -m ruff check src/ --output-format concise` | Found 174 errors(= 基线 174) |
-| Ruff repo | `python -m ruff check . --output-format concise` | Found 237 errors(= 基线 237) |
+| Ruff repo | `python -m ruff check . --output-format concise` | Found 237 errors(= 基线 237) —— 返修后实测；首轮曾自引入 test_client.py F401 导致 238，已核销 |
 | mypy | `python -m mypy src/` | Found 221 errors in 3 files(= 基线 221) |
 | 编译 | `python -m compileall -q src/` | clean |
 | 打包 | `pip wheel . --no-deps -w dist/` | `maya_mcp_server-0.1.0-py3-none-any.whl` 构建成功 |
@@ -55,3 +55,46 @@
 ## 未做
 - 未推远端、未开 PR(按约定)。
 - 未动 ruff/mypy 存量债(基线持平)。
+
+
+---
+
+## 返修记录（2026-09-17，响应 audit-t05 裁定：打回返工）
+
+审计：reports/2026-09-17-audit-t05.md。必修 F-1/F-2/F-3 全部修复，观察项按如下处置。
+
+### F-1 headless 回退死代码 + 僵尸会话 — 已修
+
+- **A 层（契约修正）**：`bootstrap()` 的 `START_QT_SERVER` 改用 `raise_on_error=False`（client.py），`start_qt_server` 的错误按真线形状从 `result.error` / `result.result`(dict 或 JSON 串） 解析——回退分支真实可达。
+- **B 层（双端防御）**：
+  - 服务端：`start_qt_server` 在绑定前检测事件循环——`cmds.about(batch=True)` 或 `QCoreApplication.instance() is None` → 返回 `{"error":{"code":"qt_unavailable_headless","suggestion":...}}` 域错，不再产生 listen-成功但 readyRead 永不派发的僵尸端口。
+  - 客户端：Qt client `connect()` 后过 liveness gate——`asyncio.wait_for(client.ping(), QT_PROBE_TIMEOUT=5s)`，不通则断连回退 native commandPort。即使服务端检测缺失（旧版本 helper），僵尸通道也不会登记为会话。
+- **回归钉（真线形状）**：`test_qt_start_error_response_falls_back_to_native`（断言 `raise_on_error=False` 契约 + `{"error":{...}}`→native）、`test_qt_zombie_channel_falls_back_to_native`(connect 成功 + ping=False→native)、`TestHeadlessGuard::test_no_event_loop_returns_domain_error`(monkeypatch `QCoreApplication.instance()->None`→域错+未绑定）、`test_start_qt_server_with_event_loop`（真 QCoreApplication 下正常绑定，反向覆盖）。
+
+### F-2 ruff ratchet — 已修
+
+- 删除 `tests/test_client.py` 自引入的 `PortType` 未用 import。实测 `ruff .` = 237（回到基线），本表 §1 行已订正。
+
+### F-3 域错误 code 不丢 — 已修
+
+- 新增 `_domain_error_text(error)`：`{code,message}` → `"code: message"`，与 native `write_module` 对齐；Qt `_send_receive` 的 `raise_on_error` 分支与 `raise_for_error` 均改走该函数。
+- 双 schema（已知域错 `{code,message,suggestion?}` vs 异常兜底 `{type,message,traceback}`）已在 `dispatch_request` docstring 注释明示。
+- 回归钉：`TestQtSendReceiveDomainCode::test_unknown_method_raises_with_code`（真 asyncio peer，`unknown_method` code 出现在异常文本）。
+
+### 观察项处置
+
+- **O-1** health 接线：`SessionManager.check_session_health` 对 framed client 走 `health()`（status=="ok"），native 走 ping。
+- **O-3** fail-closed：`peerAddress()` 异常 → 断开拒绝（原 except:pass 放行已改）。
+- **O-4** loopback 单口径：`server.add_session` 改用 `is_loopback_host`（127.0.0.0/8、::1、localhost* 全收）。
+- **O-6** 小修：`_CONFIG_PORT_TIMEOUT=60.0` 提常数（两处 60.0 magic）；`_send_receive` docstring 补 `MayaTimeoutError`；AGENTS.md tests/ 清单补 `test_qt_channel.py`。
+- **O-2** ADR-0010 “版本感知响应规范化” 未实现 → 已登记债（handoff rev8 登记债区）。
+- **O-5** `_probe_port` MayaConnectionError 分支 socket 泄漏：基线既有，未认领（登记债）。
+- **O-7** commit id 为 GitButler change-id（kyn/kpt）；sha 见 `but log`/`git log`。
+- **O-8** PySide2 fallback 移除→PySide6-only，与 D-012(Maya 2024+) 一致，事实确认。
+
+### 复验（返修后实测）
+
+- `pytest tests/ -q` → **517 passed, 3 skipped**（首轮 513 → +4 新钉）
+- `ruff src/` = 174；`ruff .` = 237；`mypy src/` = 221 —— 全部基线持平
+- `compileall` clean；wheel 构建成功；stdio-smoke 18 工具/四 hint/ping/blocked/invalid 全绿；audit.jsonl 落盘
+- **诚实声明**：Qt 实测仅到 stub + PySide6 真 QTcpServer 回环层；本机无 Maya 运行时，真 Maya/mayapy 档未跑（既有手动层空缺）。

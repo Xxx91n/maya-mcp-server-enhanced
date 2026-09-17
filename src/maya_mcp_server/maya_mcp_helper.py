@@ -13,17 +13,20 @@ from typing import Any
 
 # Try importing Qt from PySide2 (Maya 2022-2023) or PySide6 (Maya 2024+)
 try:
+    from PySide2.QtCore import QCoreApplication  # type: ignore[import-not-found]
     from PySide2.QtNetwork import (  # type: ignore[import-not-found]
         QHostAddress,
         QTcpServer,
     )
 except ImportError:
     try:
+        from PySide6.QtCore import QCoreApplication
         from PySide6.QtNetwork import QHostAddress, QTcpServer
     except ImportError:
         # Qt not available - Qt server functions will fail gracefully
         QTcpServer = None
         QHostAddress = None
+        QCoreApplication = None
 
 CAPTURE_VARIABLE = "_mcp_result"
 
@@ -286,8 +289,11 @@ def dispatch_request(request: dict[str, Any], server: Any = None) -> dict[str, A
     """Dispatch one decoded request to the helper method table.
 
     Transport-agnostic: used by ClientChannel (Qt framed channel) and
-    testable without Qt. Returns the response dict - never raises; handler
-    failures become structured errors.
+    testable without Qt. Returns the response dict - never raises.
+
+    Error schema is dual (D-019): known domain errors use
+    {"code": ..., "message": ..., "suggestion"?}; unexpected exceptions use
+    {"type", "message", "traceback"}. Clients must handle both.
     """
 
     method = request.get("method")
@@ -520,13 +526,15 @@ class QtCommandServer:
         if sock is None:
             return
 
-        # localhost-only: belt-and-suspenders on top of the LocalHost bind
+        # localhost-only: belt-and-suspenders on top of the LocalHost bind.
+        # Fail-closed: if the peer address cannot be determined, reject.
         try:
             if not sock.peerAddress().isLoopback():
                 sock.disconnectFromHost()
                 return
         except Exception:
-            pass
+            sock.disconnectFromHost()
+            return
 
         client_id = self._next_client_id
         self._next_client_id += 1
@@ -552,11 +560,37 @@ _qt_server: QtCommandServer | None = None
 
 
 def start_qt_server(port: int) -> str:
-    """Start the Qt command server and return the port number."""
+    """Start the Qt command server and return the port number.
+
+    Headless guard (D-013): in mayapy, PySide6 imports fine and QTcpServer
+    .listen() even succeeds, but no QCoreApplication event loop exists so
+    readyRead is never dispatched - a zombie channel that accepts TCP but
+    answers nothing. Detect before binding and report a domain error so the
+    client falls back to a dedicated native commandPort.
+    """
     global _qt_server
 
     if _qt_server is not None:
         return json.dumps({"port": _qt_server.port, "already_running": True})
+
+    headless = False
+    try:
+        import maya.cmds as cmds
+
+        headless = bool(cmds.about(batch=True))
+    except Exception:
+        pass
+    if not headless:
+        # Without a live QCoreApplication, Qt signals never fire - same zombie.
+        headless = QCoreApplication is None or QCoreApplication.instance() is None
+    if headless:
+        return json.dumps({
+            "error": {
+                "code": "qt_unavailable_headless",
+                "message": "Qt event loop unavailable (headless Maya)",
+                "suggestion": "run Maya GUI, or fall back to the native commandPort channel",
+            }
+        })
 
     try:
         _qt_server = QtCommandServer(port)

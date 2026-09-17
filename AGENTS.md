@@ -31,7 +31,8 @@ tests/
 ├── conftest.py            # maya_env fixture installs stub, binds maya_scene_module
 ├── test_checkpoint_rollback.py  # T-03 checkpoint/rollback regression (ADR-0004/D-015)
 ├── test_pipeline.py             # T-04 unified pipeline + audit JSONL + annotations (D-018/D-019)
-├── test_client.py
+├── test_client.py             # typed errors, write_module, bootstrap fallback
+├── test_qt_channel.py         # T-05 framed codec/dispatch/ClientChannel/Qt roundtrip (D-013)
 ├── test_connection_guide.py
 ├── test_cos_formatter.py
 ├── test_maya_scene_module.py    # module-level regressions on the stub
