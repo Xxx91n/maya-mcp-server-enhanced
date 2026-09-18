@@ -443,6 +443,7 @@ class MayaClient(BaseMayaClient):
 
         Raises:
             MayaConnectionError: If not connected
+            MayaUnavailableError: If the connection is lost mid-request
             MayaExecutionError: If communication fails or raise_on_error is True and command errors
         """
         if not self._writer or not self._reader:
@@ -456,8 +457,11 @@ class MayaClient(BaseMayaClient):
 
         async with self._lock:
             try:
-                # Send command
-                self._writer.write(command.encode("utf-8"))
+                # Send command - commandPort executes on newline, so the
+                # terminator is unconditional (D-041): without it the
+                # command parks in the receive buffer until the next send
+                # flushes it through (off-by-one).
+                self._writer.write(command.encode("utf-8") + b"\n")
                 await self._writer.drain()
 
                 # Read response until null terminator
@@ -468,7 +472,10 @@ class MayaClient(BaseMayaClient):
                         timeout=self.timeout,
                     )
                     if not chunk:
-                        break
+                        raise MayaUnavailableError(
+                            f"Connection closed on {self.host}:{self.port} "
+                            "before response terminator"
+                        )
                     response_bytes += chunk
                     # Maya terminates responses with \n\x00
                     if response_bytes.endswith(b"\x00"):
@@ -501,7 +508,11 @@ class MayaClient(BaseMayaClient):
 
             except asyncio.TimeoutError as e:
                 raise MayaTimeoutError("Timeout waiting for Maya response") from e
-            except MayaExecutionError:
+            except (ConnectionError, asyncio.IncompleteReadError) as e:
+                raise MayaUnavailableError(
+                    f"Connection lost on {self.host}:{self.port}: {e}"
+                ) from e
+            except (MayaExecutionError, MayaUnavailableError):
                 raise
             except Exception as e:
                 raise MayaExecutionError(f"Error communicating with Maya: {e}") from e

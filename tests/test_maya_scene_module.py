@@ -213,6 +213,53 @@ class TestSamplingDisclosure:
         res = maya_env.module.scene_review(["overlaps"])
         assert res["checks"]["overlaps"]["skipped"] == 0
 
+    def test_overlaps_substring_names_not_parent_child(self, maya_env):
+        """D-037: basename-substring siblings are NOT parent-child -
+        the old substring test wrongly excluded |GEO_wall vs
+        |GEO_wall2 from the overlap check."""
+        maya_env.scene.add_mesh("GEO_wall")
+        maya_env.scene.add_mesh("GEO_wall2")  # same default bbox -> overlap
+        res = maya_env.module.scene_review(["overlaps"])
+        check = res["checks"]["overlaps"]
+        assert check["pairs"] >= 1
+
+    def test_overlaps_true_parent_child_excluded(self, maya_env):
+        """A real parent-child pair stays excluded (DAG prefix)."""
+        parent = maya_env.scene.add_mesh("GEO_p")
+        maya_env.scene.add_mesh("GEO_c", parent=parent)
+        res = maya_env.module.scene_review(["overlaps"])
+        assert res["checks"]["overlaps"]["pairs"] == 0
+
+    def test_conflicts_substring_names_not_parent_child(self, maya_env):
+        """D-037: conflicts check must not exclude basename-substring
+        siblings - |GEO_wall vs |GEO_wall2 are not parent-child."""
+        maya_env.scene.add_mesh("GEO_wall")
+        maya_env.scene.add_mesh("GEO_wall2")  # same default bbox -> penetration
+        res = maya_env.module.scene_review(["conflicts"])
+        assert res["checks"]["conflicts"]["count"] >= 1
+
+    def test_conflicts_true_parent_child_excluded(self, maya_env):
+        """A real parent-child pair stays excluded (DAG prefix)."""
+        parent = maya_env.scene.add_mesh("GEO_p")
+        maya_env.scene.add_mesh("GEO_c", parent=parent)
+        res = maya_env.module.scene_review(["conflicts"])
+        assert res["checks"]["conflicts"]["count"] == 0
+
+    def test_predict_conflicts_substring_names_flagged(self, maya_env):
+        """D-037: _predict_conflicts near-miss must not exclude
+        basename-substring siblings either (audit T-11 F2)."""
+        maya_env.scene.add_mesh("GEO_wall")
+        maya_env.scene.add_mesh("GEO_wall2")  # same bbox -> zero gap
+        res = maya_env.module.scene_plan()
+        assert len(res["conflict_prevention"]) >= 1
+
+    def test_predict_conflicts_true_parent_child_excluded(self, maya_env):
+        """A real parent-child pair stays excluded (DAG prefix)."""
+        parent = maya_env.scene.add_mesh("GEO_p")
+        maya_env.scene.add_mesh("GEO_c", parent=parent)
+        res = maya_env.module.scene_plan()
+        assert len(res["conflict_prevention"]) == 0
+
     def test_conflicts_checked_skipped(self, maya_env):
         for i in range(70):  # over the 60-object cap
             maya_env.scene.add_mesh(f"GEO_obj{i:02d}", t=(i * 1000, 0, 0))

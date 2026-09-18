@@ -81,6 +81,9 @@ class Scene:
         self.focus_panel = None     # getPanel(withFocus=True)
         self.viewport_size = (1280, 720)  # M3dView.portWidth/portHeight
         self.look_thru_calls = []   # (panel, camera) lookThru invocations
+        self.model_panel_calls = [] # (panel, camera) modelPanel camera edits
+        self.stub_strict = False    # D-039: True => unclassifiable args raise like real Maya
+        self.stub_notes = []        # anomalies recorded in warn (non-strict) mode
         self.playblast_calls = []   # recorded playblast kwargs
         self.playblast_empty = False  # headless quirk: silent zero-byte artifact
         self.refresh_calls = 0      # cmds.refresh invocations
@@ -223,6 +226,12 @@ class Scene:
             return True
         except RuntimeError:
             return False
+
+    def stub_note(self, msg):
+        """Record an anomaly; raise it when strict mode is on (D-039)."""
+        self.stub_notes.append(msg)
+        if self.stub_strict:
+            raise RuntimeError(msg)
 
     def long_name(self, node):
         return "|" + "|".join(n.name for n in node.path_nodes())

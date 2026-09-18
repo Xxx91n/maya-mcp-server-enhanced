@@ -438,7 +438,7 @@ def modelEditor(*args, **kw):
         return None
     if kw.get("edit") or kw.get("e"):
         if "camera" in kw or "cam" in kw:
-            panel["camera"] = kw.get("camera", kw.get("cam"))
+            panel["camera"] = sc.resolve(kw.get("camera", kw.get("cam"))).name
         if "activeView" in kw or "av" in kw:
             want = bool(kw.get("activeView", kw.get("av")))
             for p in sc.panels.values():
@@ -450,22 +450,87 @@ def modelEditor(*args, **kw):
     return None
 
 
-def lookThru(*args, **kw):
-    """lookThru(editorName, object): point a panel at a camera."""
+def modelPanel(*args, **kw):
+    """Panel-registry modelPanel (D-039).
+
+    The -camera flag forwards to the panel's editor (query/edit),
+    -exists checks registry membership - mirrors the real command,
+    where -camera is a modelPanel flag and -ex is a standard UI flag.
+    """
     sc = _s()
-    pos = [str(a) for a in args]
-    if len(pos) >= 2:
-        panel_name, cam = pos[0], pos[1]
-    elif len(pos) == 1:
-        panel_name, cam = sc.focus_panel, pos[0]
-    else:
+    name = str(args[0]) if args else None
+    if kw.get("exists") or kw.get("ex"):
+        return name in sc.panels
+    panel = sc.panels.get(name)
+    if panel is None or panel["type"] != "modelPanel":
+        raise RuntimeError("Object not found: " + str(name))
+    if kw.get("query") or kw.get("q"):
+        if kw.get("camera") or kw.get("cam"):
+            return panel["camera"]
+        return None
+    if kw.get("edit") or kw.get("e"):
+        if "camera" in kw or "cam" in kw:
+            panel["camera"] = sc.resolve(kw.get("camera", kw.get("cam"))).name
+            sc.model_panel_calls.append((name, panel["camera"]))
+        return None
+    if name and name not in sc.panels:
+        sc.panels[name] = {
+            "type": "modelPanel",
+            "camera": "persp",
+            "activeView": False,
+            "withFocus": False,
+            "width": sc.viewport_size[0],
+            "height": sc.viewport_size[1],
+        }
+    return name
+
+
+def lookThru(*args, **kw):
+    """lookThru([editorName] [object]): point a view at a camera/object.
+
+    Fidelity note (verified against the 2025 CommandsPython page): the
+    official synopsis is (editor, object) but the command classifies
+    the two positional args by TYPE - a panel/editor name vs a DAG
+    object - so both orders work in real Maya. A single positional
+    arg is the object for the active (focus) view.
+
+    Stub deviation policy (D-039): an arg that classifies as NEITHER
+    a known panel nor a DAG node records a stub_note and the call
+    degrades to a no-op. Real Maya errors on unknown names - but
+    hard-raising by default would also reject inputs that are legal
+    on real Maya when the stub registry is intentionally sparse.
+    Set scene.stub_strict = True for the real-Maya raise.
+    """
+    sc = _s()
+    panel_name, obj = None, None
+    for a in (str(x) for x in args):
+        if a in sc.panels:
+            if panel_name is None:
+                panel_name = a
+            else:
+                sc.stub_note(f"lookThru: second panel arg {a!r} ignored")
+        elif sc.exists(a):
+            if obj is None:
+                obj = a
+            else:
+                sc.stub_note(f"lookThru: second object arg {a!r} ignored")
+        else:
+            sc.stub_note(f"lookThru: {a!r} is not a panel or DAG node")
+    if panel_name is None:
         panel_name = kw.get("panel", sc.focus_panel)
-        cam = kw.get("camera")
+    if obj is None:
+        obj = kw.get("camera")
     if panel_name not in sc.panels:
-        raise RuntimeError("Cannot find panel: " + str(panel_name))
-    sc.resolve(cam)
-    sc.look_thru_calls.append((panel_name, cam))
-    sc.panels[panel_name]["camera"] = cam
+        sc.stub_note("Cannot find panel: " + str(panel_name))
+        return
+    if obj is None:
+        sc.stub_note("lookThru: no object resolvable")
+        return
+    if not sc.exists(obj):
+        sc.stub_note(f"lookThru: {obj!r} is not a DAG node")
+        return
+    sc.look_thru_calls.append((panel_name, obj))
+    sc.panels[panel_name]["camera"] = obj
 
 
 def playblast(**kw):

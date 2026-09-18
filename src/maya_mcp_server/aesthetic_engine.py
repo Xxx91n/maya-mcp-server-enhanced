@@ -7,6 +7,12 @@ Implements 5 dimensions of design quality analysis:
 4. Lighting Quality (layer analysis, temperature, balance)
 5. Visual Flow (sight lines, circulation, leading lines, rhythm)
 
+DORMANT (T-11b/D-038): zero production references - the Maya-side inline
+_score_* functions in maya_scene_module.py are the live implementation.
+This module is kept for the T-06 consolidation decision (inject, or
+rewrite from the inline implementation); until then it is material,
+not a promise. See the ADR-0003 status note.
+
 References:
 - Itten, J. "The Art of Color" - color theory fundamentals
 - Ching, F.D.K. "Architecture: Form, Space, & Order" - spatial composition
@@ -907,7 +913,7 @@ def compute_lighting_quality_score(
     if not lights:
         return {"score": 0, "sub_scores": {}, "detail": "no_lights"}
 
-    layers = {"key": [], "fill": [], "rim": [], "accent": [], "other": []}
+    layers = {"key": [], "fill": [], "rim": [], "accent": [], "unclassified": []}
     for light in lights:
         role = classify_light_type(light["name"])
         layers[role].append(light)

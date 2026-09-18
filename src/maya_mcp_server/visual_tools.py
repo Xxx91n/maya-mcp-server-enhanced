@@ -258,8 +258,8 @@ def register_visual_tools(mcp: Any) -> None:
         gui_session_required error.
 
         Side-effect disclosures (readOnlyHint is honest, D-026):
-        1. Switching the panel camera via lookThru is instantaneous,
-           visible, and NOT undoable in Maya.
+        1. Switching the panel camera via the modelPanel camera flag
+           is instantaneous, visible, and NOT undoable in Maya.
         2. Net-zero side effect: the panel camera is restored on every
            path - success or failure - so terminal state equals entry.
         3. The current time may visibly jump during capture; it is
@@ -270,7 +270,8 @@ def register_visual_tools(mcp: Any) -> None:
         6. Only a killed Maya process can skip the restore.
 
         Args:
-            camera: Camera to look through (default: current view).
+            camera: Camera to look through (default: the panel's
+                current camera).
             width: Frame width in pixels (default 640). Rounded UP to a
                 multiple of 4 server-side (playblast constraint); the
                 actual size may also be clamped by the viewport -

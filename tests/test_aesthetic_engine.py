@@ -1,4 +1,9 @@
-"""Tests for the aesthetic_engine module."""
+"""Tests for the aesthetic_engine module.
+
+DORMANT coverage (D-038): the engine has zero production references -
+these tests guard a dormant asset until the T-06 consolidation
+decision; they are not evidence of a verified production path.
+"""
 
 import pytest
 from maya_mcp_server.aesthetic_engine import (
@@ -458,6 +463,18 @@ class TestEnhancedLighting:
         ]
         result = analyze_lighting_layers(lights)
         assert result["total_lights"] == 20
+
+    def test_unclassified_light_names_no_keyerror(self):
+        """D-038: names matching no role keyword must land in the
+        unclassified bucket instead of raising KeyError."""
+        lights = [
+            {"name": "sun", "type": "directionalLight", "color": [1, 0.98, 0.9],
+             "intensity": 1.0},
+            {"name": "pointLight1", "type": "pointLight", "color": [1, 1, 1],
+             "intensity": 0.5},
+        ]
+        result = compute_lighting_quality_score(lights)
+        assert "score" in result
 
 
 class TestLightingWithPosition:

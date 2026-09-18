@@ -145,38 +145,39 @@ def _active_model_panel() -> str | None:
 
 
 @contextmanager
-def _look_thru_restored(panel: str, camera: str | None) -> Iterator[None]:
+def _camera_switch_restored(panel: str, camera: str | None) -> Iterator[None]:
     """Point *panel* at *camera*, restoring the prior camera afterwards.
 
-    lookThru is instantaneous, visible, and NOT undoable - so the
-    restore is what makes this net-zero. The finally block guards on
-    panel survival; a failed restore is logged, never raised over the
-    business result (D-026).
+    Switching a modelPanel's camera is instantaneous, visible, and NOT
+    undoable - so the restore is what makes this net-zero. The finally
+    block guards on panel survival; a failed restore is logged, never
+    raised over the business result (D-026). Camera switching uses the
+    unambiguous modelPanel named-argument API (D-039).
     """
     prev_camera = None
     if camera:
         try:
-            prev_camera = cmds.modelEditor(panel, query=True, camera=True)
+            prev_camera = cmds.modelPanel(panel, query=True, camera=True)
         except Exception:
             prev_camera = None
-        cmds.lookThru(panel, camera)
+        cmds.modelPanel(panel, edit=True, camera=camera)
     try:
         yield
     finally:
         if camera:
             try:
-                if cmds.modelEditor(panel, query=True, exists=True):
+                if cmds.modelPanel(panel, exists=True):
                     if prev_camera:
-                        cmds.lookThru(panel, prev_camera)
+                        cmds.modelPanel(panel, edit=True, camera=prev_camera)
                     else:
                         logger.warning(
-                            "lookThru restore skipped for %s: "
+                            "camera restore skipped for %s: "
                             "prior camera unreadable",
                             panel,
                         )
             except Exception:
                 logger.warning(
-                    "lookThru restore failed for panel %s", panel
+                    "camera restore failed for panel %s", panel
                 )
 
 
@@ -314,7 +315,7 @@ def render_preview(
     format: str = "jpeg",
     quality: int = 80,
 ) -> dict[str, Any]:
-    """Single-frame playblast from *camera* (or the current lookThru).
+    """Single-frame playblast from *camera* (or the panel's current camera).
 
     Net-zero side effect (D-026): the panel camera and the timeline are
     restored on every path - success or failure - unless the process is
@@ -345,7 +346,7 @@ def render_preview(
     )
     png_path = tmp_base + ".png"
     try:
-        with _look_thru_restored(panel, camera):
+        with _camera_switch_restored(panel, camera):
             cmds.playblast(
                 frame=int(cmds.currentTime(query=True)),
                 format="image",

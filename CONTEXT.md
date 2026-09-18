@@ -93,7 +93,7 @@ _Avoid_: 覆写安装
 _Avoid_: 大爆炸重构
 
 **stub 层**:
-CI 上替代 maya.cmds/OpenMaya 的自建假实现；数学语义必须正确（尤其 8 角点世界 bbox），否则假绿。定位=契约测试层——验证代码与 maya.cmds 契约的往返逻辑（edit 真改状态、query 读回同值），像素/行为正确性归 mayapy 档；GUI 面（panel/lookThru/playblast/OpenMayaUI）以 stateful-fake 扩展，禁像素断言。
+CI 上替代 maya.cmds/OpenMaya 的自建假实现；数学语义必须正确（尤其 8 角点世界 bbox），否则假绿。定位=契约测试层——验证代码与 maya.cmds 契约的往返逻辑（edit 真改状态、query 读回同值），像素/行为正确性归 mayapy 档；GUI 面（panel/modelPanel/playblast/OpenMayaUI）以 stateful-fake 扩展，禁像素断言；lookThru 仅作 stub 保真保留（生产已于 T-11/D-039 退场）。
 
 **mayapy 档**:
 可选的真机 Maya 测试层，本地手动跑，文档化，不卡 CI。与 stub 层不同 pytest 调用（禁混跑）。

@@ -65,7 +65,7 @@ import maya_mcp_server.visual_module as _mcp_visual
 - [ ] `render_preview()` — playblast artifact is produced and decoded;
       `width/height` in metadata match reality.
 - [ ] `render_preview(camera="CAM_x")` — panel camera is restored to
-      the prior camera after the call (lookThru restore).
+      the prior camera after the call (modelPanel camera restore).
 - [ ] `render_preview()` — current time is unchanged after the call
       (undo bug #21 restore).
 - [ ] `render_preview()` — the `exists` pre-check on the target

@@ -22,7 +22,10 @@ House rules:
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) (feat / fix / docs / refactor / test / chore).
 - CI gates (`.github/workflows/ci.yml`): `pytest` must be green on ubuntu + windows; the ruff budget
   (`.github/ruff-baseline.json`) is ratchet-only-down — above budget fails, and a lower count may be
-  budgeted down in the same PR commit with the reason stated. `mypy` (221 known errors) runs locally
+  budgeted down in the same PR commit with the reason stated. The `src` count includes
+  `aesthetic_engine.py`, a **dormant** module (zero production references; Maya-side inline
+  `_score_*` is the live implementation — kept for the T-06 consolidation decision, see the
+  ADR-0003 status note and D-038). `mypy` (221 known errors) runs locally
   but is not a CI gate yet (full quality gate is a later round).
 
 ## Conduct
