@@ -1,72 +1,76 @@
-# Handoff — maya-mcp-grill 下一轮任务书（rev13）
+# Handoff — maya-mcp-grill 下一轮任务书（rev14）
 
-> 生成时间：2026-09-18（T-09 grill 定稿 D-028..D-032）。供任意子 Agent 接手；结论以决策账本为唯一真源。
+> 生成时间：2026-09-18（T-10a grill 定稿 D-033..D-036）。供任意子 Agent 接手；结论以决策账本为唯一真源。
 
 ## 本轮验收事实（非计划）
 
-- **T-08 已关闭并合入 main**（d0f6f77）；T-09 spec 五问闭合：D-028 范围边界 / D-029 三层命名 / D-030 README+LICENSE+telemetry / D-031 skills+issues / D-032 版本+文档骨架+授权门。
-- **基线复核（勿劣化；规范环境=.venv Py3.13）**：pytest 546+6skip+1 既有环境失败（test_qt_channel WinError 64 RST/FIN 语义差，归 T-10a Linux CI 复核）；ruff src=174/repo=237；mypy=221；compileall+wheel+stdio 全绿。
-- **T-09 不写源码**——它是文档/身份/仓库设置任务；唯一 pyproject 改动=身份字段（name/scripts/urls/description/classifier 保持 3-Alpha、version 保持 0.1.0）。
+- **T-09 已关闭**（3cfeccd+audit closure 73fc2bd，复审 PASS）；**repo 已由用户改名** maya-mcp-server-enhanced→Xxx91n/mcp-for-maya，本地 remote 双 URL 已跟随（ls-remote 可达 HEAD=73fc2bd）；六 roadmap issues #2-#7 已建（#7 pinned）。
+- **T-10a spec 四问闭合**：D-033 CI 矩阵 / D-034 RST 修复 / D-035 预算门+mypy 排除 / D-036 release.yml+dependabot+badge+分支保护清单。
+- **基线复核（勿劣化；规范环境=.venv Py3.13 Windows）**：pytest 546+6skip+1 fail（test_qt_channel WinError 64=本轮修复对象）；ruff src=174/repo=237；mypy=221；无 .github/、无 lock 文件。
+- **远端事实**：Xxx91n/mcp-for-maya 已存在（gh 实测）；PyPI mcp-for-maya 空闲（2026-09-18 实测 404）。
 
 ## 真源与上下文（先读这些）
 
-- 决策账本：.scratch/maya-mcp-grill/decision-ledger.md（D-001..D-032）
-- 术语表 CONTEXT.md（27 术语）；ADR docs/adr/0001..0014（0014=发布身份与卫生策略）
-- AGENTS.md 联动规范；docs/threat-model.md §5 工具矩阵
-- rui.txt（.codex_tmp/）——dated artifact，仍开着的 P2 项=T-09 清扫对象
-- 锐评复核基线：上一轮会话已对 rui.txt 全条目实物核销（见 git log ad571ca 前各 T 提交）
+- 决策账本 .scratch/maya-mcp-grill/decision-ledger.md（D-001..D-036）
+- ADR docs/adr/0001..0015（0015=首个 CI/发布工作流形态）；CONTEXT.md 28 术语（新增“冻结预算”）
+- AGENTS.md 联动规范；docs/threat-model.md §5；docs/testing.md 分层（mayapy 档永不入 CI）
+- T-09 实施报告 .scratch/maya-mcp-grill/reports/2026-09-18-t09-implementation.md（发布日清单母版）
 
 ## 工作约定（承袭）
 
-- 写文件经 ctx_execute（node.js fs）；版本控制一律 but（禁 git 写命令）；每轮独立分支。
-- 新决策先入 D-xxx；文档传播矩阵：本任务（T-09）是授权清扫方——全部 stale 行归本任务，不再“留后续”。
-- **授权分层（D-032③）**：agent 自主=文件/分支/issues/PR；人工确认门=repo 改名、push main、tag、Release、PyPI、secret。
-- README 撰写遵循 skills/git/readme/create-readme（GFM+GitHub admonition、克制 emoji、不含 LICENSE/CONTRIBUTING/CHANGELOG 节）。
+- 写文件经 ctx_execute（node.js fs，**用绝对路径**——沙箱 cwd 非仓库根）；版本控制一律 but（禁 git 写命令）；每轮独立分支。
+- 授权分层：agent=文件/分支/issues/PR；人工门=push main、tag、Release、PyPI、pending publisher、environment reviewer、分支保护、secret。
+- 文档传播矩阵：本 commit 只修因 CI/修复而 stale 的行；其余既有错误列清单交后续任务。
+- 验收数字一律以当次命令实测为准（连续两轮证据数字失实的前科）。
 
-## 下一任务：T-09 发布卫生实施（D-028..D-032）
+## 下一任务：T-10a 最小质量门实施（D-033..D-036）
 
 ### 交付物清单
 
-1. **LICENSE**（D-030②）：MIT 全文+双行版权 `Copyright (c) 2026 Chad Dombrova`（上游 notice 保留=法律义务）+ `Copyright (c) 2026 Xxx91n`。
-2. **pyproject.toml**（D-029/D-032①）：`name="mcp-for-maya"`；`[project.scripts]` 双入口 `mcp-for-maya`+`maya-mcp-server` 同指 `maya_mcp_server.__main__:main`；urls 三条→`github.com/Xxx91n/mcp-for-maya`；version=0.1.0 与 classifier 3-Alpha **保持不动**；description/keywords 可对齐新叙事。
-3. **README.md + README_en.md**（D-030①）：结构重排+全量修错——(a) “对比 blender-mcp”诚实三档节；(b) 11 维统一（代码真源：11 checks，分值表按 maya_scene_module max_score 实值）；(c) 65%→论文数字如实归因或去数；(d) pip install→`mcp-for-maya`+`uvx mcp-for-maya`（D-029 script 名）+dist/import 对应关系一行说明；(e) Skills 幻影→真实交付 skills/ 两卡（D-031）；(f) clone URL→新仓库名；(g) 信任段写 zero telemetry, no phone-home；(h) Versioning 小节（semver+0.x→Beta→1.0 晋升条件+里程碑驱动不承诺周期）。
-4. **AGENTS.md**（D-030①）：`LOGLEVEL=DEBUG`→`-v/-vv` 实值；`scripts/secrets.py``scripts/dependency.py` 幻影删（或如实标注工具缺失）；审核维度表对齐 11 维；security 行已在。
-5. **skills/**（D-031①）：`icev-workflow/SKILL.md`+`scene-review-playbook/SKILL.md`——spec frontmatter（name 小写连字符≤64 匹配目录名、description≤1024 写 what+when、`compatibility: "Tested on Claude Code only; requires mcp-for-maya MCP server"`）+正文显式 Experimental 声明+Tracked in issue #N+每卡≤3 模块<500 行、细则移 references/。
-6. **CHANGELOG.md**（D-032②）：Keep a Changelog 1.1.0 格式+[Unreleased] 段+semver 声明。
-7. **CONTRIBUTING.md**（D-032②）：最小三节——dev setup（uv/pip -e.[dev]+pytest+ruff+mypy）、PR 流程（conventional commits）、行为准则引用。
-8. **SECURITY.md / threat-model.md / docs/**：仅同步改名所致 stale 引用（传播矩阵），不重写内容。
-9. **GitHub 侧**（D-028③/D-032③）：(a) 六 roadmap issues 由 agent 经 gh 直建（清单见 D-031②，建好把 #N 回填 skills 卡与 README）；(b) **repo 改名入人工门**——备好 `gh repo rename mcp-for-maya` 命令+受影响文件清单（README/pyproject/CI 徽章位）交付用户；改名后检查 Actions 旧 owner/repo@ref 引用。
+1. **client.py RST 修复**（D-034）：Qt `_send_receive` 捕获链 IncompleteReadError 支扩为 `(ConnectionError, asyncio.IncompleteReadError)→MayaUnavailableError`；typed re-raise 支（MayaUnavailableError/MayaExecutionError）保持在前；回归证=既有测试 test_connection_closed_raises_unavailable 由红转绿。**独立 commit，先于 CI 文件**（先修后门）。
+2. **tests/ 探测分支**（D-035②）：先 `ruff check tests/ --statistics`——auto-fixable ≥~80% 则 `ruff check tests/ --fix` 同 PR 清零（独立 commit），预算只记 src；否则两段预算照旧。
+3. **.github/workflows/ci.yml**（D-033/D-035①）：lint job（ubuntu-latest 单格——ruff check . --output-format=json 分段计数 vs 预算文件，>budget fail、≤通过+提示“可同 PR 降预算”）+test job（matrix [ubuntu-latest,windows-latest]×["3.10","3.x"]、fail-fast:false、actions/setup-python+astral-sh/setup-uv enable-cache+uv pip install -e ".[dev]" --system+pytest -q）；触发 push(main)+pull_request+workflow_dispatch；concurrency group+cancel-in-progress；permissions:contents:read；外部 action 全 SHA 固定+# vX.Y.Z 注释。可选实现层自由：汇聚 job（needs matrix）供分支保护单 context。
+4. **.github/ruff-baseline.json**（D-035①）：{"src":N,"tests":M}——值=修复后实测（probe 结果决定 tests 段是否归 0/省略）。
+5. **.github/workflows/release.yml**（D-036①）：tag v*→test（needs，矩阵重跑）→build（uv build+artifact）→publish（environment:pypi、permissions:id-token:write+contents:read、pypa/gh-action-pypi-publish SHA 固定、PEP740 attestation 随 v1.11+）；不建 GitHub Release。
+6. **.github/dependabot.yml**（D-036③）：github-actions ecosystem、weekly、minor+patch 分组、open-pull-requests-limit:5。
+7. **README.md+README_en.md**（D-036④）：CI badge 同轮（workflows/ci.yml 状态章，新名已一致）；PyPI badge 不加（发布日清单）。
+8. **CONTRIBUTING.md**（D-035③/传播矩阵）：CI 门写明——pytest 须绿、ruff 预算可降不可升、mypy 221 为已知状态本地可跑不进 CI；PR 节补“预算下调随 PR 同 commit+理由”。
+9. **AGENTS.md**（传播矩阵）：repo 结构块补 .github/workflows 一行；Development Commands 如有 stale 对齐预算门语义。
+10. **CHANGELOG.md**（传播矩阵）：[Unreleased] Added=CI/release/dependabot/预算门；Fixed=ConnectionError→unavailable 映射。
+11. **发布日/设置清单更新**（D-036②，入 T-10a 报告）：pending publisher 精确字段（repo=Xxx91n/mcp-for-maya、workflow=release.yml、environment=pypi）+environment required reviewer 人工配+tag 推送+gh release create v* --generate-notes+分支保护 gh api -X PUT .../branches/main/protection（contexts=首跑后实测 check 名）+PyPI badge 补（?cacheSeconds=300）+TestPyPI 预演可选。
 
 ### DoD
 
-- [ ] 上述 1-8 文件全落地且与代码实测一致（README 每个数字可对源）
-- [ ] 六 issues 已建、#N 已回填 skills 卡与 README
-- [ ] 改名命令清单已交付用户（含 PyPI URL 不随重定向提醒）
-- [ ] 基线不劣化：pytest/ruff/mypy 跑平（docs-only 变更预期零波动）
-- [ ] 发布日清单入档：PyPI 名空闲确认→手动 pytest+build→Trusted Publishers 发真实 0.1.0 或留 v1.0.0→tag/release 入人工门
-- [ ] but commit 到新分支（docs-only，不动 src/）
+- [ ] 全部文件落地；YAML 语法有效；SHA 注释与实际解析版本一致
+- [ ] client.py 修复后本地 pytest 全绿（含原 WinError64 项转绿）；PR 上 CI lint+4 格 test 全绿（首个 CI run 自证）
+- [ ] ruff 预算文件=实测值；本地模拟超预算即 fail 已验证
+- [ ] fix/ci/tests-fix 分 commit；预算下调规则写明（PR 同 commit+理由）
+- [ ] 发布日/设置清单全项入档
+- [ ] 基线不劣化：除既定修复外 pytest/ruff 无新增劣化
+- [ ] but commit 到独立分支；PR 已开；合并=用户人工门
 
 ### 负向清单
 
-- 不发 PyPI 任何东西（空包/0.0.1 占位=违规）；不改 import 包名；不动 version/classifier；不建 CODE_OF_CONDUCT/Dockerfile（Maya 桌面不可容器化）；不做 typed-skill 重路线；README 不出现 sandbox/secure 字样描述安全网（D-008）；telemetry 不写“默认关”（写的是“零遥测”）。
-
-## 遗留真机窗口清单（环境限制，未做≠未写）
-
-1. mayapy Tier2 与 GUI Tier3 八项（docs/testing.md）——本机无 Maya；2. MCP Inspector+Claude Code+Codex 多 block 实测（D-025④）；3. PySide2 真机兼容；4. T-05 R-2 headless fallback 真机。
+- mypy 不进 CI 任何形态（blocking/continue-on-error 均禁）；不 skipif/注释掩盖任何既有失败；不降 ruff select 规则集过门
+- CI 内不写预算文件；不建 lock 文件；不加 macOS 格；不做 lowest-resolution job；不做 reviewdog/diff-lint；不做 pre-commit（T-10b）
+- 不执行任何外部动作：pending publisher/environment/tag/Release/分支保护/PyPI/secret 全清单交付
+- release.yml 不建 GitHub Release；不动 version/classifier/import 名/dist 名
 
 ## 其后任务速览
 
-- **T-10a**：GH Actions pytest+ruff 最小门（发 v1.0 前置）；**发布 v1.0.0**（人工门）；**T-10b** 完整质量门；**T-12** Poly Haven v1.1；**T-06/T-07** 内部债。
+- **发布 v1.0.0**（人工门，清单已备）→ **T-10b** 完整质量门（pre-commit+mypy-baseline 第一天落地+per-rule 预算升级+coverage+macOS 候选）→ **T-12** Poly Haven（v1.1，issue #2）→ **T-06/T-07** 内部债。
 
 ## 登记债（碰到再修，勿认领）
 
-- _suggest_layout pair-window 截断未披露；checked/skipped 三处异构；orbit_cam/shot_cam 无 CAM_ 前缀；玄学评分语义重设计（D-014d）
-- test_security.py:389 I001；test_scene_tools_json.py AsyncMock never-awaited；connection_guide 版本扫描复制粘贴三连
-- ADR-0010 O-2；_probe_port socket 泄漏（O-5）；native _send_receive 丢 code（R-1 微瑕）
-- visual_module verticalFlip 防御默认待 Tier3；lookThru 参数序真机复核；cmds.refresh 异常静默可能回旧帧
-- _visual_injected/_injected_sessions 重连跳过重注入；_visual_call/_exec_visual 与 scene_tools 同形双胞胎（绞杀者归并时收）；Scene.gui/_ViewWidget/_MAGIC.get 死面
+- **新增**：OSError errno 白名单（ENET*/ENOTCONN→unavailable）后续增强；ruff 原生 baseline（#1149）落地即迁移；pending publisher 不预留名→首真实发布即锁名窗口风险
+- 沿用：D-011/ADR-0008 validator 注册表已决策未实现（挂 T-06/T-07 或显式撤回）；_suggest_layout pair-window 截断；checked/skipped 三处异构；orbit_cam/shot_cam 无 CAM_ 前缀；玄学评分（D-014d）；test_security.py:389 I001；AsyncMock never-awaited；connection_guide 版本扫描三连；ADR-0010 O-2；_probe_port socket 泄漏；native _send_receive 丢 code；visual_module 真机项；_visual_injected 重连；_visual_call/_exec_visual 双胞胎；Scene.gui/_ViewWidget/_MAGIC.get 死面
+
+## 遗留真机窗口清单（归 issue #7）
+
+mayapy Tier2、GUI Tier3 八项、MCP Inspector+双客户端多 block 实测、PySide2 真机、T-05 R-2 headless fallback 真机。
 
 ## suggested skills
 
-- 执行：implement + create-readme（README 重写规范）；评审：code-review；文档：domain-modeling
-- 调研：atomcode-research（PyPI 名空闲确认可联网查证）；收尾：handoff、neat-freak；版本控制：gitbutler（but）
+- 执行：implement；CI/修复落地后 code-review
+- 调研：atomcode-research（action SHA 解析/workflow 语法如需查证）
+- 收尾：handoff、neat-freak；版本控制：gitbutler（but）

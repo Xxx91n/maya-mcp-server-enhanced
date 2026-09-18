@@ -116,3 +116,7 @@ _Avoid_: 包名（歧义）
 **人工确认门**:
 一次性高副作用公开动作的人工批准边界——repo 改名、push main、建 tag、建 Release、PyPI 发布、改 secret 须经用户执行或逐条批准；agent 仅备命令清单与影响面列表。低风险可逆动作（文件/分支/issues/PR）agent 自主。
 _Avoid_: 自动发布
+
+**冻结预算 (frozen budget)**:
+存量 lint/类型错误以计数预算文件入库冻结、只降不升的 ratchet 纪律——CI 计数>预算即 fail；预算下调须经 PR 同 commit 改文件并写明理由，CI 内禁止自动写预算；粒度按目录分段（src/tests），per-rule 为完整质量门升级项。
+_Avoid_: 全绿门槛、noqa 打标基线
