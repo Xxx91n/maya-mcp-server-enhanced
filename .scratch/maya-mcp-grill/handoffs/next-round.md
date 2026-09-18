@@ -1,69 +1,52 @@
-# Handoff — maya-mcp-grill 下一轮任务书（rev14）
+# Handoff — maya-mcp-grill 下一轮任务书（rev15）
 
-> 生成时间：2026-09-18（T-10a grill 定稿 D-033..D-036）。供任意子 Agent 接手；结论以决策账本为唯一真源。
+> 生成时间：2026-09-18（T-10a 实施完成，PR #8 待人工合并）。供任意子 Agent 接手；结论以决策账本为唯一真源。
 
 ## 本轮验收事实（非计划）
 
-- **T-09 已关闭**（3cfeccd+audit closure 73fc2bd，复审 PASS）；**repo 已由用户改名** maya-mcp-server-enhanced→Xxx91n/mcp-for-maya，本地 remote 双 URL 已跟随（ls-remote 可达 HEAD=73fc2bd）；六 roadmap issues #2-#7 已建（#7 pinned）。
-- **T-10a spec 四问闭合**：D-033 CI 矩阵 / D-034 RST 修复 / D-035 预算门+mypy 排除 / D-036 release.yml+dependabot+badge+分支保护清单。
-- **基线复核（勿劣化；规范环境=.venv Py3.13 Windows）**：pytest 546+6skip+1 fail（test_qt_channel WinError 64=本轮修复对象）；ruff src=174/repo=237；mypy=221；无 .github/、无 lock 文件。
-- **远端事实**：Xxx91n/mcp-for-maya 已存在（gh 实测）；PyPI mcp-for-maya 空闲（2026-09-18 实测 404）。
+- **T-10a 已交付**：分支 `t10a/ci-quality-gates`（stacked on `grill/round10-t10a-spec-docs`），commit `zon`=D-034 client.py 修复、`tmu`=CI 全套（D-033/D-035/D-036）。PR #8 已开：**合并=人工门**。
+- **首个 CI run 自证全绿**（run 35327567488）：lint `ruff budget gate` 9s + test 4 格（ubuntu/windows × 3.10/3.x）全过 + 汇聚 `ci`。实测 check 名：`ruff budget gate` / `pytest (<os>, <ver>)` ×4 / `ci`——分支保护 contexts 用。
+- **基线复核（勿劣化；.venv Py3.13 Windows）**：pytest **547+6skip+0fail**（原 WinError64 项红转绿）；ruff src=174/tests=63/repo=237 全持平；mypy=221（不进 CI 任何形态）；compileall+uv build+干净 venv 装 wheel stdio 握手=PROCESS_ALIVE_OK。
+- **探测分支结果**：tests/ auto-fixable=29/63=46% < ~80% → 两段预算照旧 `{"src":174,"tests":63}`；tests-fix commit 未触发。
+- **本地预算门双向验证**：真报告 exit 0；压预算 src:170 exit 1 + `::error::`。
 
 ## 真源与上下文（先读这些）
 
 - 决策账本 .scratch/maya-mcp-grill/decision-ledger.md（D-001..D-036）
-- ADR docs/adr/0001..0015（0015=首个 CI/发布工作流形态）；CONTEXT.md 28 术语（新增“冻结预算”）
-- AGENTS.md 联动规范；docs/threat-model.md §5；docs/testing.md 分层（mayapy 档永不入 CI）
-- T-09 实施报告 .scratch/maya-mcp-grill/reports/2026-09-18-t09-implementation.md（发布日清单母版）
+- ADR docs/adr/0001..0015（0015=CI/发布工作流形态，本轮已落地）
+- T-10a 实施报告 .scratch/maya-mcp-grill/reports/2026-09-18-t10a-implementation.md（含发布日/设置清单全项）
+- AGENTS.md 联动规范；CONTEXT.md；docs/testing.md 分层（mayapy 档永不入 CI）
 
 ## 工作约定（承袭）
 
-- 写文件经 ctx_execute（node.js fs，**用绝对路径**——沙箱 cwd 非仓库根）；版本控制一律 but（禁 git 写命令）；每轮独立分支。
+- 写文件经 ctx_execute（node.js fs，**绝对路径**）；版本控制一律 but（禁 git 写命令）；每轮独立分支。
+- **新坑**：`but pr` 不识别自定义 SSH host（`github-Xxx91n`）→ `but push <branch>` + `gh pr create` 兜底（PR body 披露 stacking）。
+- **新坑**：Windows 上 ruff JSON 报告输出绝对路径——分段统计脚本必须 relpath(cwd) 归一化。
 - 授权分层：agent=文件/分支/issues/PR；人工门=push main、tag、Release、PyPI、pending publisher、environment reviewer、分支保护、secret。
-- 文档传播矩阵：本 commit 只修因 CI/修复而 stale 的行；其余既有错误列清单交后续任务。
-- 验收数字一律以当次命令实测为准（连续两轮证据数字失实的前科）。
+- 验收数字一律以当次命令实测为准。
 
-## 下一任务：T-10a 最小质量门实施（D-033..D-036）
+## 下一任务：发布 v1.0.0（人工门序列）→ T-10b 完整质量门
 
-### 交付物清单
+### 先决：合并 PR #8（人工门），或按口味先合 `grill/round10-t10a-spec-docs`
 
-1. **client.py RST 修复**（D-034）：Qt `_send_receive` 捕获链 IncompleteReadError 支扩为 `(ConnectionError, asyncio.IncompleteReadError)→MayaUnavailableError`；typed re-raise 支（MayaUnavailableError/MayaExecutionError）保持在前；回归证=既有测试 test_connection_closed_raises_unavailable 由红转绿。**独立 commit，先于 CI 文件**（先修后门）。
-2. **tests/ 探测分支**（D-035②）：先 `ruff check tests/ --statistics`——auto-fixable ≥~80% 则 `ruff check tests/ --fix` 同 PR 清零（独立 commit），预算只记 src；否则两段预算照旧。
-3. **.github/workflows/ci.yml**（D-033/D-035①）：lint job（ubuntu-latest 单格——ruff check . --output-format=json 分段计数 vs 预算文件，>budget fail、≤通过+提示“可同 PR 降预算”）+test job（matrix [ubuntu-latest,windows-latest]×["3.10","3.x"]、fail-fast:false、actions/setup-python+astral-sh/setup-uv enable-cache+uv pip install -e ".[dev]" --system+pytest -q）；触发 push(main)+pull_request+workflow_dispatch；concurrency group+cancel-in-progress；permissions:contents:read；外部 action 全 SHA 固定+# vX.Y.Z 注释。可选实现层自由：汇聚 job（needs matrix）供分支保护单 context。
-4. **.github/ruff-baseline.json**（D-035①）：{"src":N,"tests":M}——值=修复后实测（probe 结果决定 tests 段是否归 0/省略）。
-5. **.github/workflows/release.yml**（D-036①）：tag v*→test（needs，矩阵重跑）→build（uv build+artifact）→publish（environment:pypi、permissions:id-token:write+contents:read、pypa/gh-action-pypi-publish SHA 固定、PEP740 attestation 随 v1.11+）；不建 GitHub Release。
-6. **.github/dependabot.yml**（D-036③）：github-actions ecosystem、weekly、minor+patch 分组、open-pull-requests-limit:5。
-7. **README.md+README_en.md**（D-036④）：CI badge 同轮（workflows/ci.yml 状态章，新名已一致）；PyPI badge 不加（发布日清单）。
-8. **CONTRIBUTING.md**（D-035③/传播矩阵）：CI 门写明——pytest 须绿、ruff 预算可降不可升、mypy 221 为已知状态本地可跑不进 CI；PR 节补“预算下调随 PR 同 commit+理由”。
-9. **AGENTS.md**（传播矩阵）：repo 结构块补 .github/workflows 一行；Development Commands 如有 stale 对齐预算门语义。
-10. **CHANGELOG.md**（传播矩阵）：[Unreleased] Added=CI/release/dependabot/预算门；Fixed=ConnectionError→unavailable 映射。
-11. **发布日/设置清单更新**（D-036②，入 T-10a 报告）：pending publisher 精确字段（repo=Xxx91n/mcp-for-maya、workflow=release.yml、environment=pypi）+environment required reviewer 人工配+tag 推送+gh release create v* --generate-notes+分支保护 gh api -X PUT .../branches/main/protection（contexts=首跑后实测 check 名）+PyPI badge 补（?cacheSeconds=300）+TestPyPI 预演可选。
+### 发布日清单（全项入档于 T-10a 报告 §11，摘要）
+1. PyPI pending publisher 人工预配：repo=`Xxx91n/mcp-for-maya`、workflow=`release.yml`、environment=`pypi`
+2. GitHub Environment `pypi` 配 required reviewer
+3. 版本晋升决策（D-032①）：0.1.0 锁名发布 or 直升 1.0.0+5-Production/Stable（需同 commit 升 classifier）
+4. tag 推送 `v*` → release.yml 自动 test→build→publish → `gh release create v* --generate-notes`
+5. 分支保护：`gh api -X PUT repos/Xxx91n/mcp-for-maya/branches/main/protection`，contexts=实测 check 名（见上，推荐汇聚 `ci` 单 context 或全部 6 名）
+6. PyPI badge 补 README 双语（`?cacheSeconds=300`）；TestPyPI 预演可选
 
-### DoD
+### T-10b 完整质量门（发布后可动）
+pre-commit + mypy-baseline 第一天落地（sync 入 VCS+blocking，221 存量冻结）+ ruff per-rule 预算升级（litellm ruff-strict-budget.json 先例）+ coverage + macOS 格候选 + ruff 原生 baseline（#1149）落地即迁移。
 
-- [ ] 全部文件落地；YAML 语法有效；SHA 注释与实际解析版本一致
-- [ ] client.py 修复后本地 pytest 全绿（含原 WinError64 项转绿）；PR 上 CI lint+4 格 test 全绿（首个 CI run 自证）
-- [ ] ruff 预算文件=实测值；本地模拟超预算即 fail 已验证
-- [ ] fix/ci/tests-fix 分 commit；预算下调规则写明（PR 同 commit+理由）
-- [ ] 发布日/设置清单全项入档
-- [ ] 基线不劣化：除既定修复外 pytest/ruff 无新增劣化
-- [ ] but commit 到独立分支；PR 已开；合并=用户人工门
-
-### 负向清单
-
-- mypy 不进 CI 任何形态（blocking/continue-on-error 均禁）；不 skipif/注释掩盖任何既有失败；不降 ruff select 规则集过门
-- CI 内不写预算文件；不建 lock 文件；不加 macOS 格；不做 lowest-resolution job；不做 reviewdog/diff-lint；不做 pre-commit（T-10b）
-- 不执行任何外部动作：pending publisher/environment/tag/Release/分支保护/PyPI/secret 全清单交付
-- release.yml 不建 GitHub Release；不动 version/classifier/import 名/dist 名
-
-## 其后任务速览
-
-- **发布 v1.0.0**（人工门，清单已备）→ **T-10b** 完整质量门（pre-commit+mypy-baseline 第一天落地+per-rule 预算升级+coverage+macOS 候选）→ **T-12** Poly Haven（v1.1，issue #2）→ **T-06/T-07** 内部债。
+### 其后
+T-12 Poly Haven（v1.1，issue #2）→ T-06/T-07 内部债。
 
 ## 登记债（碰到再修，勿认领）
 
-- **新增**：OSError errno 白名单（ENET*/ENOTCONN→unavailable）后续增强；ruff 原生 baseline（#1149）落地即迁移；pending publisher 不预留名→首真实发布即锁名窗口风险
-- 沿用：D-011/ADR-0008 validator 注册表已决策未实现（挂 T-06/T-07 或显式撤回）；_suggest_layout pair-window 截断；checked/skipped 三处异构；orbit_cam/shot_cam 无 CAM_ 前缀；玄学评分（D-014d）；test_security.py:389 I001；AsyncMock never-awaited；connection_guide 版本扫描三连；ADR-0010 O-2；_probe_port socket 泄漏；native _send_receive 丢 code；visual_module 真机项；_visual_injected 重连；_visual_call/_exec_visual 双胞胎；Scene.gui/_ViewWidget/_MAGIC.get 死面
+- **新增**：`uvx ruff` 浮动版本 vs 冻结预算的工具漂移风险（无 lock 的既定取舍；若漂移致误红，PR 降预算或修真实问题）；`but pr` SSH-alias forge 识别缺陷；OSError errno 白名单（ENET*/ENOTCONN→unavailable）后续增强；ruff 原生 baseline（#1149）迁移；pending publisher 锁名窗口风险。
+- 沿用：D-011/ADR-0008 validator 注册表已决策未实现；_suggest_layout pair-window 截断；checked/skipped 三处异构；orbit_cam/shot_cam 无 CAM_ 前缀；玄学评分（D-014d）；test_security.py:389 I001；AsyncMock never-awaited；connection_guide 版本扫描三连；ADR-0010 O-2；_probe_port socket 泄漏；native _send_receive 丢 code；visual_module 真机项；_visual_injected 重连；_visual_call/_exec_visual 双胞胎；Scene.gui/_ViewWidget/_MAGIC.get 死面。
 
 ## 遗留真机窗口清单（归 issue #7）
 
@@ -71,6 +54,5 @@ mayapy Tier2、GUI Tier3 八项、MCP Inspector+双客户端多 block 实测、P
 
 ## suggested skills
 
-- 执行：implement；CI/修复落地后 code-review
-- 调研：atomcode-research（action SHA 解析/workflow 语法如需查证）
-- 收尾：handoff、neat-freak；版本控制：gitbutler（but）
+- 合并后发布序列：人工门执行（清单已备）；T-10b 用 implement；收尾 handoff、neat-freak；版本控制 gitbutler（but）
+- 调研：atomcode-research（mypy-baseline 形态/pre-commit 选型如开 T-10b）
