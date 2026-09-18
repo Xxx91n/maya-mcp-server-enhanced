@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Qt framed working channel (length-prefixed frames, up to 16 MiB) with a minimal native commandPort fallback for headless sessions.
 - `maya_setup_guide` (diagnose / install / guide / uninstall) with idempotent marker-block merge into userSetup.py and timestamped backups.
 - Project docs: CHANGELOG.md, CONTRIBUTING.md, SECURITY.md, docs/threat-model.md, docs/adr/*, docs/testing.md, dual README (中文 + English).
+- GitHub Actions CI: a lint job enforcing the frozen ruff budget (`.github/ruff-baseline.json`, ratchet-down-only) and a pytest matrix over ubuntu/windows x CPython 3.10/3.x; a release workflow on `v*` tags (test -> build -> publish via Trusted Publisher, `pypi` environment, PEP 740 attestations); Dependabot for GitHub Actions.
 
 ### Changed
 
@@ -31,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - scene_review check list, weights, and sampling limits aligned to the implementation.
 - Aesthetic engine single-sourced (standalone module injected into Maya, replacing the divergent dual implementation).
 - add_session now uses the post-bootstrap dedicated-port client; Qt channel rewritten to event-driven reads with per-connection queues.
+- Qt working channel maps the whole `ConnectionError` family (RST/FIN/aborted/refused) to `MayaUnavailableError`, fixing the Windows-only `test_connection_closed_raises_unavailable` failure (WinError 64).
 
 ### Removed
 

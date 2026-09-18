@@ -910,12 +910,12 @@ class MayaQtClient(BaseMayaClient):
 
             except asyncio.TimeoutError as e:
                 raise MayaTimeoutError("Timeout waiting for Qt server response") from e
-            except asyncio.IncompleteReadError as e:
+            except (MayaUnavailableError, MayaExecutionError):
+                raise
+            except (ConnectionError, asyncio.IncompleteReadError) as e:
                 raise MayaUnavailableError("Connection closed by Qt server") from e
             except json.JSONDecodeError as e:
                 raise MayaExecutionError(f"Invalid JSON response from Qt server: {e}") from e
-            except (MayaUnavailableError, MayaExecutionError):
-                raise
             except Exception as e:
                 raise MayaExecutionError(f"Error communicating with Qt server: {e}") from e
 
