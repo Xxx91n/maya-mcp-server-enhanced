@@ -4,6 +4,8 @@
 
 Status: accepted (2026-09-16)
 
+> **Status note (2026-09-18, T-11):** 本决定尚未兑现（as of 0.1.0）—— aesthetic_engine.py 仍为零生产引用的休眠代码（dormant），Maya 端内联 _score_* 实现是现役实现。引擎注入的归置决策推迟至 T-06（届时自由选“修复注入”或“从内联版抽取重写”）；休眠期内引擎仅是素材、非承诺。详见 ADR-0016 与 docs/decision-ledger.md D-038。
+
 ## Considered Options
 - 删引擎留 Maya 端内联实现：否决——生产逻辑只能靠 stub 间接测。
 - 双实现 + parity 测试：否决——债还在，只是加报警器。

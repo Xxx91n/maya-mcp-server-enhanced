@@ -30,7 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - scene_checkpoint now snapshots in-memory state via exportAll instead of copying the last saved file; rollback whitelists basenames and rebinds the scene path explicitly.
 - World-bbox math unified on the 8-corner transform for rotated objects.
 - scene_review check list, weights, and sampling limits aligned to the implementation.
-- Aesthetic engine single-sourced (standalone module injected into Maya, replacing the divergent dual implementation).
 - add_session now uses the post-bootstrap dedicated-port client; Qt channel rewritten to event-driven reads with per-connection queues.
 - Qt working channel maps the whole `ConnectionError` family (RST/FIN/aborted/refused) to `MayaUnavailableError`, fixing the Windows-only `test_connection_closed_raises_unavailable` failure (WinError 64).
 

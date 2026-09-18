@@ -50,16 +50,17 @@ Asset integration is on our roadmap (Poly Haven thin slice, issue #2); AI genera
 ### 1. Install
 
 ```bash
-# PyPI (recommended)
-pip install mcp-for-maya
+# Install straight from git with uv (works today)
+uv tool install git+https://github.com/Xxx91n/mcp-for-maya.git
 
-# or run without installing
-uvx mcp-for-maya
-
-# or from source
+# or clone the source
 git clone https://github.com/Xxx91n/mcp-for-maya.git
 cd mcp-for-maya
 pip install -e .
+
+# PyPI coming soon (0.1.0 release in flight):
+# pip install mcp-for-maya
+# uvx mcp-for-maya
 ```
 
 > [!NOTE]
@@ -116,11 +117,11 @@ Codex `~/.codex/config.toml`:
 ```toml
 [mcp_servers.maya]
 command = "uvx"
-args = ["mcp-for-maya"]
+args = ["--from", "git+https://github.com/Xxx91n/mcp-for-maya.git", "mcp-for-maya"]
 tool_timeout_sec = 120
 ```
 
-For a source checkout use `command = "python"`, `args = ["-m", "maya_mcp_server"]`, and point `PYTHONPATH` at `<repo>/src` under `env`.
+For a source checkout use `command = "python"`, `args = ["-m", "maya_mcp_server"]`, and point `PYTHONPATH` at `<repo>/src` under `env`. Once the PyPI release lands, `args` simplifies to `["mcp-for-maya"]` (no `--from`).
 
 ### 4. Use it
 
