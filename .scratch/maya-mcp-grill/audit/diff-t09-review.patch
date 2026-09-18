@@ -1,0 +1,1219 @@
+diff --git a/.scratch/maya-mcp-grill/handoffs/round9-t09-closed.md b/.scratch/maya-mcp-grill/handoffs/round9-t09-closed.md
+new file mode 100644
+index 0000000..f29d07b
+--- /dev/null
++++ b/.scratch/maya-mcp-grill/handoffs/round9-t09-closed.md
+@@ -0,0 +1,44 @@
++# Handoff — T-09 关闭（发布卫生实施完成）
++
++> 生成：2026-09-18。供任意子 Agent 接手；结论以决策账本为唯一真源。
++
++## 本轮验收事实（非计划）
++
++- **T-09 已交付**：LICENSE/pyproject 身份/README 双语/AGENTS/skills×2/CHANGELOG/CONTRIBUTING/docs 同步全落地；六个 roadmap issues #2-#7 已建（#7 pinned），#3 已回填两张 skills 卡与 README。
++- **改名未执行**——入人工确认门：命令清单见报告 `reports/2026-09-18-t09-implementation.md`（含 git remote set-url、Actions 旧引用检查、PyPI URL 不随重定向提醒、禁旧名重建）。
++- **PyPI mcp-for-maya 空闲已实测**：2026-09-18 pypi.org/pypi/mcp-for-maya/json → 404。
++- **基线跑平**：pytest 546+6skip+1 既有环境失败（test_qt_channel WinError 64）；ruff src=174/repo=237；mypy=221；compileall+uv build+装包测活（20 工具/annotations 无缺口/ping/拦截）全绿。
++
++## 工作约定（承袭）
++
++- 写文件经 ctx_execute（node.js fs）；版本控制一律 but（禁 git 写命令）；每轮独立分支。
++- AGENTS.md 现已 LF 归一（原混合行尾）；写文件前先确认目标行尾，replace 模式失配优先查 \r。
++- 授权分层不变：agent=文件/分支/issues/PR；人工门=repo 改名、push main、tag、Release、PyPI、secret。
++- 六 issues 号段：#2 Poly Haven v1.1 / #3 Skills v1.x / #4 安全模型 v1.x / #5 export+内省 v1.x / #6 资产源 exploratory / #7 真机清单+反馈（pinned）。
++
++## 下一任务：T-10a 最小质量门（GH Actions）
++
++- 内容：.github/workflows CI 跑 pytest + ruff（最小门，发 v1.0 前置；D-021 排序）。
++- 注意：CI badge/Actions 引用直接写新仓库名 mcp-for-maya（改名命令已交付用户，大概率先于 T-10a 执行）。
++- Linux CI 顺带复核 test_qt_channel WinError 64 的 RST/FIN 语义差（本机环境失败项）。
++- 之后：发布 v1.0.0（人工门）→ T-10b 完整质量门 → T-12 Poly Haven（v1.1，issue #2）→ T-06/T-07 内部债。
++
++## 真源与上下文
++
++- 决策账本 .scratch/maya-mcp-grill/decision-ledger.md（D-001..D-032）
++- 本轮报告 .scratch/maya-mcp-grill/reports/2026-09-18-t09-implementation.md（全证据+改名命令清单+发布日清单）
++- CONTEXT.md（29 术语）；ADR 0001..0014；AGENTS.md 联动规范；docs/threat-model.md §5
++
++## 遗留真机窗口清单（环境限制，未做≠未写）
++
++全部归 issue #7：mayapy Tier2、GUI Tier3 八项、MCP Inspector+双客户端多 block 实测（D-025④）、PySide2 真机、T-05 R-2 headless fallback 真机。
++
++## 登记债（碰到再修，勿认领）
++
++沿用上轮清单：_suggest_layout pair-window 截断未披露；checked/skipped 三处异构；orbit_cam/shot_cam 无 CAM_ 前缀；玄学评分语义重设计（D-014d）；test_security.py:389 I001；test_scene_tools_json.py AsyncMock never-awaited；connection_guide 版本扫描复制粘贴三连；ADR-0010 O-2；_probe_port socket 泄漏（O-5）；native _send_receive 丢 code（R-1 微瑕）；visual_module verticalFlip/lookThru 参数序/cmds.refresh 静默待真机；_visual_injected/_injected_sessions 重连跳过重注入；_visual_call/_exec_visual 双胞胎（绞杀者归并时收）；Scene.gui/_ViewWidget/_MAGIC.get 死面。
++
++## suggested skills
++
++- 执行：implement；CI 落地后可 code-review
++- 调研：atomcode-research（GH Actions 矩阵/Trusted Publishers 配置如需查证）
++- 收尾：handoff、neat-freak；版本控制：gitbutler（but）
+diff --git a/.scratch/maya-mcp-grill/reports/2026-09-18-t09-implementation.md b/.scratch/maya-mcp-grill/reports/2026-09-18-t09-implementation.md
+new file mode 100644
+index 0000000..6e1be33
+--- /dev/null
++++ b/.scratch/maya-mcp-grill/reports/2026-09-18-t09-implementation.md
+@@ -0,0 +1,116 @@
++# T-09 发布卫生实施报告（D-028..D-032）
++
++> 日期：2026-09-18 · 执行：修复/开发子 Agent · 基线环境：.venv Py3.13，Windows 11
++> 真源：next-round.md rev13 + decision-ledger D-028..D-032 + ADR-0014
++
++## 交付物核销
++
++### 1. LICENSE（D-030②）✅
++MIT 全文 + 双行版权（上游 notice 法律义务保留）。
++- 证据：`head -5 LICENSE` → `MIT License / Copyright (c) 2026 Chad Dombrova / Copyright (c) 2026 Xxx91n`；1096 bytes、LF、无 BOM。
++
++### 2. pyproject.toml 身份字段（D-029/D-032①）✅
++`git diff pyproject.toml` 净变更=4 处：`name="mcp-for-maya"`；description 对齐新叙事；`[project.scripts]` 双入口 `mcp-for-maya`+`maya-mcp-server` 同指 `maya_mcp_server.__main__:main`；urls 三条→`github.com/Xxx91n/mcp-for-maya`。version=0.1.0 与 classifier 3-Alpha **未动**（diff 中无对应行）。
++
++### 3. README.md + README_en.md（D-030①）✅
++结构重排 + 全量修错，逐项：
++- (a) “与 blender-mcp 对比”诚实三档节（我方独有 ICEV/CoS/checkpoint/注册表/11 项审核/带元数据 playblast vs 它方资产生态/CRUD/AI-gen vs 共有 MCP 面/截图/exec/socket）。
++- (b) 审核维度统一 11 项，分值表按 maya_scene_module 实测 max_score：spatial10/overlaps10/conflicts10/zones5/naming5/components10/orphans5/aesthetics15/lighting10/organization10/constraints5（源：maya_scene_module.py:2772-3267）。
++- (c) 65% 如实归因：“该格式论文报告在其演示场景上较 JSON 节省约 65% token（arXiv:2305.10276，-65.8%）——论文测量值而非本项目基准测试”。
++- (d) 安装改 `pip install mcp-for-maya` + `uvx mcp-for-maya`；[!NOTE] 三层命名（dist/import/script）一行说明。
++- (e) Skills 幻影删除→真实 `skills/` 两卡 + Experimental 声明 + issue #3 指向。
++- (f) clone URL→`github.com/Xxx91n/mcp-for-maya`。
++- (g) 信任段：zero telemetry, no phone-home + 本地单用户 + 安全网（校验/限流 100/20 每 60s/pattern warn-only/JSONL 审计）如实描述，无 sandbox/secure 字样。
++- (h) 版本策略节：semver + 0.x→4-Beta（feature-complete+外部测试）→1.0.0+5-Production/Stable 晋升条件 + 里程碑驱动不承诺周期。
++- 证据：`grep -c '^##' README.md`=15 节无重复；11 维度表行数=11；`grep '9 维\|maya-mcp-server-enhanced\|pip install maya-mcp-server'` 两文件均零命中。
++
++### 4. AGENTS.md（D-030①）✅
++- `LOGLEVEL=DEBUG python -m maya_mcp_server` → `python -m maya_mcp_server -vv`（-v=INFO/-vv=DEBUG，对齐 __main__.py argparse）。
++- `python scripts/secrets.py` / `python scripts/dependency.py` 幻影两行删除；保留真实存在的 semgrep 行。
++- 审核维度表 9 行错值 → 11 行代码实值（同 README）。
++- CoS 行 ~65% → 论文归因表述。
++- 证据：`git diff AGENTS.md` 净变更 26 行，仅上述区域；`grep LOGLEVEL\|scripts/ AGENTS.md` 零命中。
++- 附带修复：文件原有混合行尾（上段 LF/下段 CRLF）已归一 LF，与 .gitattributes eol=lf 一致。
++
++### 5. skills/（D-031①）✅
++`skills/icev-workflow/SKILL.md`（49 行）+ `skills/scene-review-playbook/SKILL.md`（52 行）：
++- frontmatter：name 小写连字符==目录名；description≤1024（实测 347/343 字符）；`compatibility: "Tested on Claude Code only; requires mcp-for-maya MCP server"`。
++- 正文含 "Experimental. Evaluated on Claude Code only; untested on Codex/Gemini CLI/Cursor. Tracked in issue #3."。
++- 纯流程卡、单文件、远小于 500 行，无需 references/。
++
++### 6. CHANGELOG.md（D-032②）✅
++Keep a Changelog 1.1.0 头 + semver 声明 + [Unreleased] 段（Added/Changed/Fixed/Removed），内容为 fork 全量增量（可对源核销）。
++
++### 7. CONTRIBUTING.md（D-032②）✅
++最小三节：dev setup（pip/uv -e ".[dev]"+pytest+ruff+mypy+-vv）、PR 流程（conventional commits + 基线门）、行为准则引用（Contributor Covenant v2.1 外链，不建 CODE_OF_CONDUCT 文件）。
++
++### 8. SECURITY.md / threat-model.md / docs（传播矩阵）✅
++仅同步改名所致 stale：SECURITY.md 产品名→mcp-for-maya；threat-model.md 标题→mcp-for-maya。ADR 历史件不改写；testing.md 本地路径属本机事实保留。
++
++### 9. GitHub 侧（D-028③/D-031②/D-032③）✅（issues）/ 待用户（改名）
++- 六 roadmap issues 已建：
++  - #2 [Roadmap v1.1] Poly Haven thin-slice（含 asset 类型/缓存/无网降级 AC）
++  - #3 [Roadmap v1.x] Skills program（含跨模型评测计划）← skills 卡 #N 指向
++  - #4 [Roadmap v1.x] Security & permission model（safe_mode 子任务）
++  - #5 [Roadmap v1.x] export_scene + 场景图内省
++  - #6 [Exploratory] asset sources beyond Poly Haven
++  - #7 真机验证清单 + v1.0 feedback/triage（已 pin）
++- #N 已回填：skills 两卡正文 Tracked in issue #3；README 技能节+路线图节引用 #2/#3/#4/#5/#6/#7。
++
++## 改名命令清单（人工确认门交付）
++
++```bash
++# 1) 改名（高副作用一次性公开行为，由用户执行）
++gh repo rename mcp-for-maya --repo Xxx91n/maya-mcp-server-enhanced
++# 2) 本地 remote 跟随
++git remote set-url origin git@github-Xxx91n:Xxx91n/mcp-for-maya.git
++# 3) 改名后检查 Actions 对旧 owner/repo@ref 的引用（Actions 引用不随重定向）；本仓库尚无 .github/，T-10a 落地时直接写新名
++# 4) 绝不在旧名 maya-mcp-server-enhanced 下重建仓库（重定向链会断）
++```
++已按新名写就的文件：README.md / README_en.md（clone URL+issue 引用）、pyproject.toml（Homepage/Repository/Issues）。
++⚠️ PyPI 元数据 URL **不随 GitHub 重定向**——首次发布前确认 pyproject urls 已指新名（本轮已写好）。
++
++## 发布日清单（入档）
++
++- [x] PyPI `mcp-for-maya` 空闲确认：2026-09-18 `GET https://pypi.org/pypi/mcp-for-maya/json` → 404（空闲）
++- [x] 手动 pytest+build：546 passed+6 skip+1 既有环境失败；`uv build` → mcp_for_maya-0.1.0 wheel+sdist
++- [ ] Trusted Publishers 发真实 0.1.0（或按 D-021 留 v1.0.0）——人工门
++- [ ] tag/release——人工门
++
++## 验收证据（可复跑）
++
++| 验收项 | 命令 | 结果 |
++|---|---|---|
++| 编译 | `.venv/Scripts/python.exe -m compileall -q src` | COMPILE_OK |
++| 打包 | `uv build` | dist/mcp_for_maya-0.1.0-py3-none-any.whl + .tar.gz |
++| 包内容 | zipfile 读 wheel | 21 个 maya_mcp_server/ 文件；entry_points 双 script；METADATA Name=mcp-for-maya，urls 新仓库，License-Expression MIT + LICENSE 入包 |
++| 安装测活 | `uv venv`+`uv pip install dist/...whl` → `mcp-for-maya.exe --help` | argparse CLI 正常（-v/-vv/--client-type/--scan-interval） |
++| 进程测活 | node stdio smoke（initialize→tools/list→ping→tools/call） | serverInfo OK；**toolCount=20**；hintGaps=[]；ping={}；os.system 载荷被 [blocked_pattern] 拦截 |
++| pytest | `.venv/Scripts/python.exe -m pytest tests/ -q` | 546 passed, 6 skipped, 1 failed（test_qt_channel WinError 64，归 T-10a 的既有环境项）= 基线 |
++| ruff src | `ruff check src` | 174 errors = 基线 |
++| ruff repo | `ruff check .` | 237 errors = 基线 |
++| mypy | `python -m mypy src`（系统 Python 2.1.0） | 221 errors = 基线 |
++
++## DoD 核销
++
++- [x] 1-8 文件全落地且与代码实测一致（README 每个数字已对源：20 工具=5 server+13 scene+2 visual；11 checks+分值=maya_scene_module max_score；5 审美维=analyze_aesthetics weights）
++- [x] 六 issues 已建、#N 已回填 skills 卡与 README
++- [x] 改名命令清单已交付用户（含 PyPI URL 不随重定向提醒）
++- [x] 基线不劣化：pytest/ruff/mypy 跑平（docs-only，src/ 零改动——`git status` 无 src/ 变更）
++- [x] 发布日清单入档（见上）
++- [ ] but commit 到新分支（本报告提交时一并完成）
++
++## 负向清单自查
++
++不发 PyPI（零发布动作）✓；不改 import 名（src/maya_mcp_server/ 未动）✓；不动 version/classifier（0.1.0+3-Alpha）✓；不建 CODE_OF_CONDUCT/Dockerfile ✓；不做 typed-skill 重路线 ✓；README 无 sandbox/secure 描述安全网 ✓；telemetry 写“零遥测”非“默认关” ✓。
++
++## 遗留（未做≠未写，环境限制）
++
++1. mayapy Tier2 / GUI Tier3 八项（无本机 Maya）→ 已入 issue #7 清单。
++2. MCP Inspector+Claude Code+Codex 多 block 实测（D-025④）→ issue #7。
++3. PySide2 真机兼容、T-05 R-2 headless fallback 真机 → issue #7。
++4. test_qt_channel WinError 64（RST/FIN 语义差）→ T-10a Linux CI 复核。
++
++## 变更文件
++
++D:\Aworker\maya\maya-mcp-server\LICENSE（新）、D:\Aworker\maya\maya-mcp-server\CHANGELOG.md（新）、D:\Aworker\maya\maya-mcp-server\CONTRIBUTING.md（新）、D:\Aworker\maya\maya-mcp-server\skills\icev-workflow\SKILL.md（新）、D:\Aworker\maya\maya-mcp-server\skills\scene-review-playbook\SKILL.md（新）、D:\Aworker\maya\maya-mcp-server\pyproject.toml、D:\Aworker\maya\maya-mcp-server\README.md、D:\Aworker\maya\maya-mcp-server\README_en.md、D:\Aworker\maya\maya-mcp-server\AGENTS.md、D:\Aworker\maya\maya-mcp-server\SECURITY.md、D:\Aworker\maya\maya-mcp-server\docs\threat-model.md
+diff --git a/AGENTS.md b/AGENTS.md
+index 24b61ab..e2b69a4 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -55,7 +55,7 @@ tests/
+ 2. **Maya-side module injection** — `_mcp_scene` is injected once via `write_module` on first scene tool call
+ 3. **Large module handling** — GUI/Qt sessions inject modules of any size directly via the framed channel (16 MiB cap, D-013); temp-file injection is retained only for headless/native commandPort sessions
+ 4. **Response alignment** — `execute_code` handles both `str` and `dict` results to prevent `json.loads` errors
+-5. **CoS notation** — Chain-of-Symbol format saves ~65% tokens vs raw JSON
++5. **CoS notation** — Chain-of-Symbol format compacts scene tokens (the CoS paper reports ~65% savings vs JSON on its demo scenes, arXiv 2305.10276 — a paper figure, not a local benchmark)
+ 
+ ## ICEV Workflow
+ 
+@@ -71,15 +71,17 @@ The audit tool is generic — works for ANY Maya project:
+ 
+ | Dimension | Score | What it checks |
+ |-----------|-------|----------------|
+-| spatial | 15 | Object count, cameras, lights |
+-| overlaps | 15 | BBox collision (excludes parent-child) |
+-| conflicts | 15 | Penetration detection (excludes env objects like SUN) |
+-| zones | 10 | Naming-rule zone coverage |
+-| naming | 10 | Maya production naming convention |
+-| components | 15 | GRP_ grouping + nesting depth ≤ 4 |
+-| aesthetics | 10 | Color harmony + spatial balance + focal points |
+-| constraints | 5 | Max objects, custom rules |
++| spatial | 10 | Object count, cameras, lights |
++| overlaps | 10 | BBox collision (excludes parent-child) |
++| conflicts | 10 | Penetration detection (excludes env objects like SUN) |
++| zones | 5 | Naming-rule zone coverage |
++| naming | 5 | Maya production naming convention |
++| components | 10 | GRP_ grouping + nesting depth ≤ 4 |
+ | orphans | 5 | Empty groups, default names |
++| aesthetics | 15 | 5-dim score: color/composition/scale/lighting/flow |
++| lighting | 10 | Three-point setup, fill ratio, decay |
++| organization | 10 | Hierarchy health |
++| constraints | 5 | Max objects, custom rules |
+ 
+ ## Maya Connection Setup Guide
+ 
+@@ -127,13 +129,11 @@ If userSetup.py does not work, guide the user to:
+ # Run tests
+ python -m pytest tests/ -q
+ 
+-# Run with debug logging
+-LOGLEVEL=DEBUG python -m maya_mcp_server
++# Run with debug logging (-v=INFO, -vv=DEBUG)
++python -m maya_mcp_server -vv
+ 
+ # Security audit
+ semgrep scan --config auto src/
+-python scripts/secrets.py --path src
+-python scripts/dependency.py --path src
+ ```
+ 
+ ## Known Quirks
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+new file mode 100644
+index 0000000..09f674b
+--- /dev/null
++++ b/CHANGELOG.md
+@@ -0,0 +1,37 @@
++# Changelog
++
++All notable changes to this project will be documented in this file.
++
++The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
++and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
++
++## [Unreleased]
++
++### Added
++
++- Scene-intelligence layer on top of the upstream connection stack: 13 scene tools (snapshot / inspect / measure / assert / validate / checkpoint / rollback / checkpoint_list / camera_create / camera_orbit / aesthetics / review / plan) plus 2 GUI-only visual tools (scene_viewport_snapshot, scene_render_preview) — 20 MCP tools total.
++- ICEV (Inspect-Compute-Execute-Verify) workflow enforced in server instructions; two experimental agent process cards under `skills/` (icev-workflow, scene-review-playbook).
++- Unified pipeline across all tools: argument validation, per-session token-bucket rate limits, warn-only pattern scan, independent JSONL audit log.
++- Transactional safety: exportAll in-memory checkpoints with whitelisted filenames, automatic safety snapshot before rollback, explicit scene rebind.
++- Qt framed working channel (length-prefixed frames, up to 16 MiB) with a minimal native commandPort fallback for headless sessions.
++- `maya_setup_guide` (diagnose / install / guide / uninstall) with idempotent marker-block merge into userSetup.py and timestamped backups.
++- Project docs: CHANGELOG.md, CONTRIBUTING.md, SECURITY.md, docs/threat-model.md, docs/adr/*, docs/testing.md, dual README (中文 + English).
++
++### Changed
++
++- Distribution renamed to `mcp-for-maya` (import package stays `maya_mcp_server`); console scripts are now `mcp-for-maya` plus `maya-mcp-server` as a compatibility alias; project URLs point to Xxx91n/mcp-for-maya.
++- README rewritten: honest three-tier blender-mcp comparison, code-sourced numbers (20 tools, 11 audit checks with real weights, CoS figure attributed to its paper), a real `skills/` section, zero-telemetry statement, and a versioning policy.
++- Two-layer error contract: host-side failures surface via MCP isError with a code prefix; Maya-side results return `{error:{code,message,suggestion}}`.
++
++### Fixed
++
++- JSON-serialized argument passing across scene tools (closes the string-interpolation injection surface in scene_validate / scene_measure / scene_assert).
++- scene_checkpoint now snapshots in-memory state via exportAll instead of copying the last saved file; rollback whitelists basenames and rebinds the scene path explicitly.
++- World-bbox math unified on the 8-corner transform for rotated objects.
++- scene_review check list, weights, and sampling limits aligned to the implementation.
++- Aesthetic engine single-sourced (standalone module injected into Maya, replacing the divergent dual implementation).
++- add_session now uses the post-bootstrap dedicated-port client; Qt channel rewritten to event-driven reads with per-connection queues.
++
++### Removed
++
++- Phantom references: LOGLEVEL env var, scripts/secrets.py, scripts/dependency.py, and the "4 Codex Skills" README promise (replaced by the real `skills/` cards).
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+new file mode 100644
+index 0000000..d7c57fe
+--- /dev/null
++++ b/CONTRIBUTING.md
+@@ -0,0 +1,27 @@
++# Contributing
++
++## Development setup
++
++```bash
++pip install -e ".[dev]"            # or: uv pip install -e ".[dev]"
++python -m pytest tests/ -q         # stub-layer suite (contract tests vs the maya.cmds stub)
++ruff check src tests               # lint — error budget is frozen, ratchet only goes down
++mypy src                           # typecheck — strict for new files
++python -m maya_mcp_server -vv      # run with DEBUG logs (-v=INFO, -vv=DEBUG)
++```
++
++House rules:
++
++- Every fix ships with a regression test on the maya stub layer.
++- Real-Maya tests are a separate local manual tier (`pytest -m mayapy`, see docs/testing.md) — never mixed with the stub tier.
++- If your change makes a doc line stale, fix that line in the same commit (propagation matrix in AGENTS.md).
++
++## Pull requests
++
++- One branch per change; keep diffs small and reviewable.
++- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) (feat / fix / docs / refactor / test / chore).
++- Baseline gates: pytest green (the maya-stub tier), ruff and mypy error counts must not increase.
++
++## Conduct
++
++This project follows the [Contributor Covenant](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) v2.1. Be respectful, assume good faith, keep discussion technical.
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..eec5f35
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,22 @@
++MIT License
++
++Copyright (c) 2026 Chad Dombrova
++Copyright (c) 2026 Xxx91n
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+diff --git a/README.md b/README.md
+index b6e63c8..d7b9cc2 100644
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,4 @@
+-# Maya MCP Server
++# mcp-for-maya
+ 
+ > 让 AI Agent 拥有 Maya 三维空间感知能力的 MCP 服务器
+ 
+@@ -6,39 +6,63 @@
+ 
+ ## 这是什么
+ 
+-`maya-mcp-server` 是一个 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 服务器，让大语言模型（如 Codex、Claude）能够直接操控 Autodesk Maya，进行三维建模、场景规划和工程级项目落地。
++`mcp-for-maya` 是一个 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 服务器，让大语言模型（Codex、Claude 等）直接操控 Autodesk Maya，进行三维建模、场景规划和工程级项目落地。
+ 
+-**核心能力：** AI 不再是"闭眼写代码"，而是像有了眼睛一样，能随时感知 Maya 场景的空间状态、材质分布、物体关系，并基于工程规范进行智能审核。
++本项目 fork 自 [chadrik/maya-mcp-server](https://github.com/chadrik/maya-mcp-server)，在其连接层之上扩展了场景智能层：空间感知、工程审核、事务安全与视觉闭环。
+ 
+-> ⚠️ **安全须知**：本服务器把任意 Python 代码送进 Maya 执行——这是设计能力而非漏洞。内置的校验/限流/审计是**误操作与注入指令的安全网，不是抵御恶意客户端的边界**；接入的 Agent 是受信方。详见 [docs/threat-model.md](docs/threat-model.md)。
++**核心能力：** AI 不再是"闭眼写代码"，而是能随时感知 Maya 场景的空间状态、材质分布、物体关系，并基于工程规范进行确定性审核。
++
++> [!WARNING]
++> 本服务器把任意 Python 代码送进 Maya 执行——这是设计能力而非漏洞。内置的校验/限流/审计是**误操作与注入指令的安全网，不是抵御恶意客户端的边界**；接入的 Agent 是受信方。详见 [docs/threat-model.md](docs/threat-model.md)。
++
++## 与 blender-mcp 对比
++
++对标 [ahujasid/blender-mcp](https://github.com/ahujasid/blender-mcp)（2026-09 实测），诚实三档：
++
++| 档位 | 内容 |
++|------|------|
++| **本项目独有** | ICEV 强制工作流（写进服务端 instructions）、CoS 记号化输出、checkpoint/rollback 事务安全、自注册 validator 扩展机制、多会话管理、11 项确定性审核、带元数据的 playblast 渲染预览 |
++| **blender-mcp 独有** | 资产生态链（Poly Haven/Sketchfab/Hyper3D/Hunyuan3D）、一等对象 CRUD 工具面、AI 生成模型接入、社区规模 |
++| **双方共有** | MCP 工具面、视口截图回传、任意 Python 执行、本地 socket 连接 |
++
++资产集成在我们的路线图上（Poly Haven 薄集成，issue #2）；AI 生成与一等对象 CRUD 明确不做——后者 `execute_code` 已覆盖。
+ 
+ ## 能力矩阵
+ 
+ | 能力 | 工具 | 说明 |
+ |------|------|------|
+ | 🧊 **空间感知** | `scene_snapshot` `scene_inspect` `scene_measure` | 一次调用获取全场景空间模型，精确距离/重叠/间隙测量 |
+-| 🎨 **审美分析** | `scene_aesthetics` | 5维专业分析：色彩理论(60-30-10)、空间构成(黄金比例/三分法)、比例尺度(人体工学)、光影质量(三点照明/填充比/阴影质量/照度分布/色温分级/衰减率)、视觉动线 |
++| 🎨 **审美分析** | `scene_aesthetics` | 5 维分析：色彩理论(60-30-10)、空间构成(黄金比例/三分法)、比例尺度(人体工学)、光照质量(三点照明/填充比/色温/衰减)、视觉动线 |
+ | 🎬 **镜头规划** | `camera_create` `camera_orbit` | 8 种行业标准镜头 + 环绕动画 |
+-| 🛡️ **避灾回退** | `scene_checkpoint` `scene_rollback` `scene_checkpoint_list` | exportAll 内存态快照，回滚重绑原路径 |
+-| 🧠 **大局观统筹** | scene_plan | 场景组织健康检查、区域平衡分析、布局优化建议、冲突预防、自然语言规划 |
+-| 📋 **工程审核** | `scene_review` `scene_validate` | 11 维度审核（0-100 分）：空间/重叠/区域/审美5维/约束/孤儿/命名/组件化/冲突/光照质量/场景组织 |
+-| ⚡ **代码执行** | `execute_code` `write_module` | 在 Maya 中执行任意 Python 代码 |
+-| 👁️ **视觉闭环** | `scene_viewport_snapshot` `scene_render_preview` | 视口所见即所得捕获 + 单帧 playblast 预览（仅 GUI 会话；ICEV VERIFY 视觉确认） |
++| 🛡️ **避灾回退** | `scene_checkpoint` `scene_rollback` `scene_checkpoint_list` | exportAll 内存态快照，回滚显式重绑原路径 |
++| 🧠 **大局观统筹** | `scene_plan` | 组织健康检查、区域平衡、布局优化建议、冲突预防、自然语言规划 |
++| 📋 **工程审核** | `scene_review` `scene_validate` `scene_assert` | 11 项确定性检查（0-100 分）+ 自定义约束验证 + 状态断言 |
++| ⚡ **代码执行** | `execute_code` `write_module` | 在 Maya 中执行任意 Python 代码 / 注入可复用模块 |
++| 👁️ **视觉闭环** | `scene_viewport_snapshot` `scene_render_preview` | 视口所见即所得捕获 + 单帧 playblast 预览（仅 GUI 会话） |
++| 🔌 **会话管理** | `list_sessions` `add_session` `maya_setup_guide` | 多会话发现/接入 + 连接诊断/安装/回退引导 |
++
++共 20 个 MCP 工具。
+ 
+ ## 快速开始
+ 
+ ### 1. 安装
+ 
+ ```bash
+-# 从 PyPI
+-pip install maya-mcp-server
++# PyPI（推荐）
++pip install mcp-for-maya
++
++# 或免安装直接运行
++uvx mcp-for-maya
+ 
+ # 或从源码
+-git clone https://github.com/Xxx91n/maya-mcp-server-enhanced.git
+-cd maya-mcp-server-enhanced
++git clone https://github.com/Xxx91n/mcp-for-maya.git
++cd mcp-for-maya
+ pip install -e .
+ ```
+ 
++> [!NOTE]
++> **三层命名**：dist 名 `mcp-for-maya`（PyPI 货架名）→ 安装后 import 名为 `maya_mcp_server`（继承上游不改）；script 名 `mcp-for-maya`（旧名 `maya-mcp-server` 保留为兼容别名）。`uvx mcp-for-maya` 能命中正是因为命令名与包名一致。
++
+ ### 2. 配置 Maya 连接
+ 
+ #### 方式一：自动配置（推荐）
+@@ -46,20 +70,20 @@ pip install -e .
+ 启动 MCP 服务器后，AI Agent 会自动调用 `maya_setup_guide` 工具引导连接：
+ 
+ 1. 确保 Maya 已启动
+-2. 在 Codex 中输入任意指令（如"查看 Maya 场景"）
+-3. 如果未连接，Agent 会自动运行诊断并安装 `userSetup.py`
++2. 在 Agent 中输入任意指令（如"查看 Maya 场景"）
++3. 如果未连接，Agent 会自动运行诊断并可安装 `userSetup.py`（幂等标记块合并，写入前自动备份）
+ 4. 重启 Maya 后，命令端口自动打开
+ 
+ #### 方式二：手动配置
+ 
+ 在 Maya 的脚本编辑器中执行：
++
+ ```python
+ import maya.cmds as cmds
+ cmds.commandPort(name=':7001', sourceType='python')
+ ```
+ 
+-> **提示**: Script Editor 打开方式：Maya 菜单 → Windows → General Editors → Script Editor
+-> 确保语言选择器显示为 **Python**（不是 MEL）
++> **提示**: Script Editor 打开方式：Maya 菜单 → Windows → General Editors → Script Editor；确保语言选择器为 **Python**（不是 MEL）。
+ 
+ #### 方式三：永久自动连接
+ 
+@@ -87,28 +111,28 @@ cmds.evalDeferred('cmds.commandPort(name=":7001", sourceType="python")', lowestP
+ 
+ ### 3. 配置 MCP 客户端
+ 
+-在 Codex 的 `~/.codex/config.toml` 中添加：
++Codex `~/.codex/config.toml`：
+ 
+ ```toml
+-[mcp_servers.maya_mcp]
+-command = "python"
+-args = ["-m", "maya_mcp_server"]
++[mcp_servers.maya]
++command = "uvx"
++args = ["mcp-for-maya"]
+ tool_timeout_sec = 120
+-
+-[mcp_servers.maya_mcp.env]
+-PYTHONPATH = "/path/to/maya-mcp-server/src"
+ ```
+ 
++源码安装则改用 `command = "python"`、`args = ["-m", "maya_mcp_server"]`，并在 `env` 中把 `PYTHONPATH` 指到 `<repo>/src`。
++
+ ### 4. 开始使用
+ 
+-在 Codex 中直接对话：
++在 Agent 中直接对话：
++
+ > "帮我看看 Maya 场景里有什么，然后在入口处创建一个展示架"
+ 
+ AI 会自动调用 `scene_snapshot()` → 理解场景 → 执行建模 → `scene_review()` 审核结果。
+ 
+ ## 工作流：ICEV 循环
+ 
+-每次场景修改都遵循 **ICEV** 工作流：
++每次场景修改都遵循 **ICEV** 工作流（也内置为 Agent 流程卡，见 `skills/icev-workflow`）：
+ 
+ ```
+ ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+@@ -120,7 +144,7 @@ AI 会自动调用 `scene_snapshot()` → 理解场景 → 执行建模 → `sce
+ 1. **INSPECT**：`scene_snapshot()` 获取全场景空间数据
+ 2. **COMPUTE**：基于空间数据计算位置、尺寸、间距
+ 3. **EXECUTE**：`execute_code()` 执行 Maya Python 代码
+-4. **VERIFY**：`scene_assert()` + `scene_review()` 确认结果
++4. **VERIFY**：`scene_assert()` + `scene_review()` 确认结果；GUI 会话可用视觉工具复核
+ 
+ ## 工具详解
+ 
+@@ -143,9 +167,8 @@ scene_assert(expectations='{"wall": {"exists": true, "position": [0,0,500]}}')
+ ### 工程审核
+ 
+ ```python
+-# 9 维度审核（返回 0-100 分）
++# 11 项确定性检查（返回 0-100 分）
+ scene_review()
+-# 检查：空间完整性、重叠、冲突、区域、命名、组件化、审美、约束、孤儿
+ 
+ # 空间约束验证
+ scene_validate(rules='[{"type": "min_clearance", "value": 180}]')
+@@ -154,7 +177,7 @@ scene_validate(rules='[{"type": "min_clearance", "value": 180}]')
+ ### 镜头规划
+ 
+ ```python
+-# 创建镜头（支持 8 种行业标准类型）
++# 创建镜头（8 种行业标准类型）
+ camera_create(target="product_display", shot_type="medium", azimuth=30, elevation=15)
+ # 类型：extreme_wide / wide / medium / close / extreme_close / bird_eye / low_angle / over_shoulder
+ 
+@@ -165,14 +188,13 @@ camera_orbit(center=[0, 100, 0], radius=500, frames=120)
+ ### 避灾回退
+ 
+ ```python
+-# 保存检查点（操作前；快照=内存态 exportAll，不含 undo 历史）
++# 保存检查点（快照=内存态 exportAll，不含 undo 历史）
+ scene_checkpoint(name="before_renovation")
+ 
+ # 列出所有检查点
+ scene_checkpoint_list()
+ 
+-# 回滚（先自动存安全快照，再把场景名重绑回原文件；
+-# 回滚后请用 scene_snapshot 重建认知）
++# 回滚（先自动存安全快照，再把场景名重绑回原文件；回滚后请用 scene_snapshot 重建认知）
+ # 边界：快照自包含——references 默认展平不回写；假定单场景文件单会话
+ scene_rollback(filename="cp_before_renovation.ma")
+ ```
+@@ -192,7 +214,7 @@ scene_render_preview(camera="CAM_hero", width=640, height=360)
+ 
+ ## CoS 符号化格式
+ 
+-默认输出使用 **Chain-of-Symbol** 格式，比 JSON 节省 **65% token**：
++默认输出使用 **Chain-of-Symbol** 记号化格式压缩场景数据。该格式论文报告在其演示场景上较 JSON 节省约 65% token（arXiv:2305.10276，-65.8%）——本项目实现该记号，此数字为论文测量值而非本项目基准测试。
+ 
+ ```
+ SCENE[164obj, 5zones] UNIT=cm UP=y
+@@ -203,77 +225,70 @@ entrance (6obj) @(157.3,162.6,-111.6)
+   GRP_workshopFront[group]@(1162,-17,103) 227.4x200.9x193.3
+ ```
+ 
+-## 配套 Skills
++## Agent Skills
+ 
+-项目提供 4 个 Codex Skills，放在 `~/.codex/skills/` 下：
++仓库内置 2 张 **Experimental** 流程卡（`skills/` 目录）：
+ 
+-| Skill | 用途 | 触发场景 |
+-|-------|------|----------|
+-| `maya-architect` | 空间布局 + ICEV 工作流 | 用户描述空间需求时 |
+-| `maya-camera` | 镜头规划 + 运镜 | 用户需要相机/动画时 |
+-| `maya-aesthetics` | 配色/平衡/焦点分析 | 用户关注视觉效果时 |
+-| `maya-safety` | 检查点/回滚/约束 | 进行高风险操作时 |
++| Skill | 用途 |
++|-------|------|
++| `skills/icev-workflow` | ICEV 修改纪律：任何场景变更必走 Inspect→Compute→Execute→Verify |
++| `skills/scene-review-playbook` | 审核手册：11 项检查的分值解读与 findings→actions 映射 |
+ 
+-## 架构
+-
+-```
+-┌──────────────────────────────────────────┐
+-│           LLM Agent (Codex)              │
+-│  scene_snapshot() → 完整空间模型          │
+-│  scene_review() → 9维度审核评分           │
+-└──────────┬───────────────────────────────┘
+-           │ 20 个 MCP 工具
+-┌──────────▼───────────────────────────────┐
+-│        MCP Server Layer                   │
+-│  scene_tools.py  → 工具定义               │
+-│  visual_tools.py → 视觉闭环（仅 GUI）      │
+-│  scene_cache.py  → TTL 缓存 + 脏检测      │
+-│  cos_formatter.py → CoS 符号化（省65%）    │
+-│  security.py     → 输入验证 + 速率限制     │
+-└──────────┬───────────────────────────────┘
+-           │ execute_code("import _mcp_scene; ...")
+-┌──────────▼───────────────────────────────┐
+-│        Maya 端 (_mcp_scene / _mcp_visual)  │
+-│  get_scene_graph() → 层级 + BBox + 变换   │
+-│  get_spatial_index() → 空间索引 + 邻居     │
+-│  scene_review() → 9维度审核引擎            │
+-│  analyze_aesthetics() → 色彩/平衡/焦点     │
+-└──────────────────────────────────────────┘
+-```
++> 两卡仅在 Claude Code 上评测过，未在 Codex/Gemini CLI/Cursor 验证；跨模型评测计划见 issue #3。
+ 
+ ## 审核维度
+ 
+-`scene_review()` 提供 9 个通用审核维度（适用于任何 Maya 项目）：
++`scene_review()` 提供 11 项通用检查（0-100 分，按各项分值归一化）：
+ 
+-| 维度 | 分值 | 检查内容 |
++| 检查 | 分值 | 检查内容 |
+ |------|------|----------|
+-| spatial | 15 | 物体数、相机数、灯光数 |
+-| overlaps | 15 | BBox 碰撞检测 |
+-| conflicts | 15 | 空间穿透检测 |
+-| components | 15 | GRP_ 分组 + 嵌套深度 |
+-| naming | 10 | Maya 命名规范 |
+-| zones | 10 | 区域覆盖率 |
+-| aesthetics | 10 | 色彩和谐 + 空间平衡 + 焦点 |
+-| constraints | 5 | 安全约束 |
+-| orphans | 5 | 孤儿/空组检测 |
++| spatial | 10 | 物体/相机/灯光计数 |
++| overlaps | 10 | BBox 碰撞检测（排除父子） |
++| conflicts | 10 | 空间穿透检测 |
++| zones | 5 | 命名规则区域覆盖 |
++| naming | 5 | 生产命名规范 |
++| components | 10 | GRP_ 分组 + 嵌套深度 ≤4 |
++| orphans | 5 | 空组/默认名检测 |
++| aesthetics | 15 | 5 维审美（色彩/构成/比例/光照/动线） |
++| lighting | 10 | 三点照明/填充比/衰减 |
++| organization | 10 | 层级组织健康度 |
++| constraints | 5 | 自定义约束违反 |
+ 
+-## 开发
++## 信任与隐私
+ 
+-```bash
+-# 安装开发依赖
+-pip install -e ".[dev]"
++- **零遥测**：zero telemetry, no phone-home——本项目不含任何遥测或外发上报代码，可源码核实。
++- **本地单用户**：命令端口仅绑定 localhost；接入的 MCP client 是受信方。
++- **安全网**：统一管线对全部 20 个工具做参数校验 + token-bucket 限流（读取类 ~100 次/60s、变更类 ~20 次/60s，按会话）+ pattern 扫描（默认 warn-only）+ 独立 JSONL 审计日志。它防误操作，不防恶意 client——完整模型见 [docs/threat-model.md](docs/threat-model.md)。
++- **事务安全**：`scene_checkpoint`/`scene_rollback` 提供内存态快照与显式回滚（快照不含 undo 历史，references 默认展平）。
++- 漏洞报告渠道见 [SECURITY.md](SECURITY.md)。
+ 
+-# 运行测试
+-python -m pytest tests/ -q
++## 版本策略
+ 
+-# 安全审计
+-semgrep scan --config auto src/
+-```
++遵循 [Semantic Versioning](https://semver.org/)：
+ 
+-## 致谢
++- **0.x（当前 0.1.0，Alpha）**：工具面仍可能调整；minor bump 承载新功能，不承诺兼容冻结。
++- **Beta**：feature-complete 且开始外部测试后晋升（classifier 同步升 `4 - Beta`）。
++- **1.0.0**：公共 API 冻结承诺，与 `5 - Production/Stable` classifier 同一提交晋升。
++
++发布节奏为里程碑驱动，不承诺固定周期。路线图见 GitHub issues：#2 Poly Haven 薄集成（v1.1）、#3 Skills 正式立项（v1.x）、#4 安全与权限模型（v1.x）、#5 export_scene+场景图内省（v1.x）、#6 更多资产源（exploratory）、#7 真机验证清单与 v1.0 反馈（pinned）。
++
++## 环境要求
+ 
+-基于 [chadrik/maya-mcp-server](https://github.com/chadrik/maya-mcp-server) 扩展开发。
++- Autodesk Maya **2024+**（Maya 自带 Python 3.10+）；视觉闭环两个工具需要 **GUI 会话**（headless/mayapy 返回结构化能力错误）。
++- 宿主 Python **≥3.10**；Windows / Linux / macOS。
+ 
+-## 许可证
++## 开发
++
++```bash
++pip install -e ".[dev]"          # 或 uv pip install -e ".[dev]"
++python -m pytest tests/ -q       # 测试
++ruff check src tests             # lint
++mypy src                         # 类型检查
++python -m maya_mcp_server -vv    # DEBUG 日志运行（-v=INFO, -vv=DEBUG）
++```
++
++贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)；变更记录见 [CHANGELOG.md](CHANGELOG.md)。
++
++## 致谢
+ 
+-MIT
++Fork 自 [chadrik/maya-mcp-server](https://github.com/chadrik/maya-mcp-server)——保留其 MIT 版权声明（见 LICENSE），在其连接层之上扩展场景智能层。
+diff --git a/README_en.md b/README_en.md
+index 9456047..446ed02 100644
+--- a/README_en.md
++++ b/README_en.md
+@@ -1,134 +1,198 @@
+-# Maya MCP Server
++# mcp-for-maya
+ 
+-> MCP server giving AI agents spatial awareness for Autodesk Maya
++> MCP server giving AI agents spatial awareness of Autodesk Maya scenes
+ 
+ English | [中文](README.md)
+ 
+ ## What Is This
+ 
+-`maya-mcp-server` is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that enables LLMs (Codex, Claude, etc.) to directly control Autodesk Maya for 3D modeling, scene planning, and engineering-grade project delivery.
++`mcp-for-maya` is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that lets LLM agents (Codex, Claude, etc.) directly drive Autodesk Maya for 3D modeling, scene planning, and engineering-grade delivery.
+ 
+-**Key capability:** The AI can "see" the Maya scene — spatial state, material distribution, object relationships — and perform intelligent auditing based on engineering standards.
++Forked from [chadrik/maya-mcp-server](https://github.com/chadrik/maya-mcp-server), it adds a scene-intelligence layer on top of the upstream connection stack: spatial awareness, deterministic auditing, transactional safety, and a visual loop.
+ 
+-> ⚠️ **Security note**: this server executes arbitrary Python inside Maya by design. The built-in validation / rate-limit / audit pipeline is a **safety net for accidents and injected instructions — not a boundary against a malicious client**; the connected agent is trusted. See [docs/threat-model.md](docs/threat-model.md).
++**Key capability:** the agent stops "writing blind" — it can perceive spatial state, materials, and object relationships, then verify changes against engineering rules.
++
++> [!WARNING]
++> This server executes arbitrary Python inside Maya — that is a designed capability, not a bug. The built-in validation / rate-limit / audit pipeline is a **safety net for accidents and injected instructions, not a boundary against a malicious client**; the connected agent is trusted. See [docs/threat-model.md](docs/threat-model.md).
++
++## vs blender-mcp
++
++An honest three-tier comparison with [ahujasid/blender-mcp](https://github.com/ahujasid/blender-mcp) (measured 2026-09):
++
++| Tier | Contents |
++|------|----------|
++| **Unique to this project** | ICEV enforced workflow (in server instructions), CoS notation output, checkpoint/rollback transactional safety, self-registered validator extension mechanism, multi-session management, 11 deterministic audit checks, playblast render preview with metadata |
++| **Unique to blender-mcp** | Asset ecosystem (Poly Haven/Sketchfab/Hyper3D/Hunyuan3D), first-class object CRUD tools, AI-generated-model integrations, community scale |
++| **Shared** | MCP tool surface, viewport screenshot feedback, arbitrary Python execution, local socket connection |
++
++Asset integration is on our roadmap (Poly Haven thin slice, issue #2); AI generation and first-class object CRUD are explicitly out of scope — the latter is already covered by `execute_code`.
+ 
+ ## Capability Matrix
+ 
+-| Capability | Tools | Description |
+-|------------|-------|-------------|
+-| 🧊 **Spatial Awareness** | `scene_snapshot` `scene_inspect` `scene_measure` | One-call full scene spatial model, precise distance/overlap/gap measurement |
+-| 🎨 **Aesthetic Analysis** | `scene_aesthetics` | 5-dimension professional analysis: Color Theory (60-30-10), Spatial Composition (golden ratio/rule of thirds), Proportion & Scale (human ergonomics), Lighting Quality (3-point setup, fill ratio, shadow quality, illuminance distribution, color temperature grading, decay rate), Visual Flow |
+-| 🎬 **Camera Planning** | `camera_create` `camera_orbit` | 8 industry-standard shot types + orbit animation |
+-| 🛡️ **Disaster Recovery** | `scene_checkpoint` `scene_rollback` `scene_checkpoint_list` | exportAll in-memory snapshots, rollback rebinds the original path |
+-| 🧠 **Scene Planning** | scene_plan | Holistic organization health, zone balance, layout optimization, conflict prevention, NL planning |
+-| 📋 **Engineering Audit** | `scene_review` `scene_validate` | 11-dimension audit (0-100 score): spatial/overlaps/zones/5D-aesthetics/constraints/orphans/naming/componentization/conflicts/lighting/organization |
+-| ⚡ **Code Execution** | `execute_code` `write_module` | Execute arbitrary Python code in Maya |
+-| 👁️ **Visual Loop** | `scene_viewport_snapshot` `scene_render_preview` | WYSIWYG viewport capture + single-frame playblast preview (GUI sessions only; visual VERIFY for ICEV) |
++| Capability | Tools | Notes |
++|------------|-------|-------|
++| 🧊 **Spatial awareness** | `scene_snapshot` `scene_inspect` `scene_measure` | One-call full-scene spatial model; precise distance/overlap/gap measurement |
++| 🎨 **Aesthetic analysis** | `scene_aesthetics` | 5 dimensions: color theory (60-30-10), spatial composition (golden ratio / rule of thirds), proportion & scale (ergonomics), lighting quality (three-point / fill ratio / temperature / decay), visual flow |
++| 🎬 **Camera planning** | `camera_create` `camera_orbit` | 8 industry-standard shot types + orbit animation |
++| 🛡️ **Disaster recovery** | `scene_checkpoint` `scene_rollback` `scene_checkpoint_list` | exportAll in-memory snapshots; rollback explicitly rebinds the original path |
++| 🧠 **Scene planning** | `scene_plan` | Organization health, zone balance, layout suggestions, conflict prevention, natural-language planning |
++| 📋 **Engineering audit** | `scene_review` `scene_validate` `scene_assert` | 11 deterministic checks (0-100 score) + custom constraint validation + state assertions |
++| ⚡ **Code execution** | `execute_code` `write_module` | Run arbitrary Python in Maya / inject reusable modules |
++| 👁️ **Visual loop** | `scene_viewport_snapshot` `scene_render_preview` | WYSIWYG viewport capture + single-frame playblast preview (GUI sessions only) |
++| 🔌 **Session management** | `list_sessions` `add_session` `maya_setup_guide` | Multi-session discovery/attach + connection diagnosis/install/fallback guidance |
++
++20 MCP tools in total.
+ 
+ ## Quick Start
+ 
+ ### 1. Install
+ 
+ ```bash
+-pip install maya-mcp-server
++# PyPI (recommended)
++pip install mcp-for-maya
+ 
+-# Or from source
+-git clone https://github.com/Xxx91n/maya-mcp-server-enhanced.git
+-cd maya-mcp-server-enhanced
++# or run without installing
++uvx mcp-for-maya
++
++# or from source
++git clone https://github.com/Xxx91n/mcp-for-maya.git
++cd mcp-for-maya
+ pip install -e .
+ ```
+ 
+-### 2. Configure Maya
++> [!NOTE]
++> **Three-layer naming**: dist name `mcp-for-maya` (PyPI shelf name) → installs import package `maya_mcp_server` (kept from upstream); script name `mcp-for-maya` (old name `maya-mcp-server` remains as a compat alias). `uvx mcp-for-maya` resolves precisely because the command name matches the dist name.
++
++### 2. Connect Maya
++
++#### Option A: automatic (recommended)
++
++With the MCP server running, the agent calls `maya_setup_guide` to walk the connection:
++
++1. Make sure Maya is running
++2. Give the agent any instruction (e.g. "look at my Maya scene")
++3. If unconnected, the agent runs diagnostics and can install `userSetup.py` (idempotent marker-block merge, timestamped backup before writing)
++4. After restarting Maya, the command port opens automatically
++
++#### Option B: manual
++
++In Maya's Script Editor (Python mode, not MEL):
+ 
+-Execute in Maya's Script Editor:
+ ```python
+ import maya.cmds as cmds
+ cmds.commandPort(name=':7001', sourceType='python')
+ ```
+ 
+-### 3. Configure MCP Client
++#### Option C: persistent auto-connect
++
++Save this as `userSetup.py` in your Maya scripts directory:
++
++| Platform | Path |
++|----------|------|
++| Windows | `%MAYA_APP_DIR%\<version>\scripts\` |
++| Linux | `~/maya/<version>/scripts/` |
++| macOS | `~/Library/Preferences/Autodesk/maya/<version>/scripts/` |
++
++```python
++import maya.cmds as cmds
++cmds.evalDeferred('cmds.commandPort(name=":7001", sourceType="python")', lowestPriority=True)
++```
++
++#### Troubleshooting
++
++| Problem | Fix |
++|---------|-----|
++| `list_sessions` returns empty | call `maya_setup_guide(action="diagnose")` |
++| Port in use | close other Maya instances or pick another port |
++| userSetup.py not loading | check it sits in the right scripts dir, restart Maya |
++| Firewall blocks | ensure localhost:7001 is reachable |
+ 
+-Add to Codex `~/.codex/config.toml`:
++### 3. Configure the MCP client
++
++Codex `~/.codex/config.toml`:
+ 
+ ```toml
+-[mcp_servers.maya_mcp]
+-command = "python"
+-args = ["-m", "maya_mcp_server"]
++[mcp_servers.maya]
++command = "uvx"
++args = ["mcp-for-maya"]
+ tool_timeout_sec = 120
+-
+-[mcp_servers.maya_mcp.env]
+-PYTHONPATH = "/path/to/maya-mcp-server/src"
+ ```
+ 
+-### 4. Start Using
++For a source checkout use `command = "python"`, `args = ["-m", "maya_mcp_server"]`, and point `PYTHONPATH` at `<repo>/src` under `env`.
++
++### 4. Use it
++
++Talk naturally:
+ 
+-Talk to Codex naturally:
+ > "Look at what's in my Maya scene, then create a display shelf at the entrance"
+ 
+-The AI automatically calls `scene_snapshot()` → understands the scene → models → `scene_review()` audits.
++The agent calls `scene_snapshot()` → understands the scene → models → `scene_review()` audits the result.
+ 
+-## Workflow: ICEV Cycle
++## Workflow: ICEV
+ 
+-Every scene modification follows **ICEV**:
++Every scene modification follows the **ICEV** loop (also shipped as an agent process card, see `skills/icev-workflow`):
+ 
+ ```
+ ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+ │ INSPECT  │ ──→ │ COMPUTE  │ ──→ │ EXECUTE  │ ──→ │ VERIFY   │
+-│ snapshot │     │ calculate │     │ apply    │     │ audit    │
++│ snapshot │     │  plan    │     │  apply   │     │  audit   │
+ └──────────┘     └──────────┘     └──────────┘     └──────────┘
+ ```
+ 
++1. **INSPECT**: `scene_snapshot()` for full-scene spatial data
++2. **COMPUTE**: plan positions, sizes, clearances from that data
++3. **EXECUTE**: `execute_code()` applies Maya Python
++4. **VERIFY**: `scene_assert()` + `scene_review()` confirm the result; on GUI sessions the visual tools give pixel-level confirmation
++
+ ## Tools Reference
+ 
+-### Spatial Awareness
++### Spatial
+ 
+ ```python
+-scene_snapshot(detail="compact", format="cos")  # Full scene overview
+-scene_inspect(target="wall_entrance")            # Deep object inspection
+-scene_measure(obj_a="wall", obj_b="shelf", mode="clearance")  # Precise distance
+-scene_assert(expectations='{"wall": {"exists": true}}')  # Verify state
++scene_snapshot(detail="compact", format="cos")   # full scene in one call
++scene_inspect(target="wall_entrance", include_neighbors=True)
++scene_measure(obj_a="wall_north", obj_b="counter_A", mode="clearance")
++scene_assert(expectations='{"wall": {"exists": true, "position": [0,0,500]}}')
+ ```
+ 
+-### Engineering Audit
++### Audit
+ 
+ ```python
+-scene_review()  # 9-dimension audit, returns 0-100 score
++scene_review()   # 11 deterministic checks, 0-100 score
+ scene_validate(rules='[{"type": "min_clearance", "value": 180}]')
+ ```
+ 
+-### Camera Planning
++### Cameras
+ 
+ ```python
+-camera_create(target="display", shot_type="medium", azimuth=30, elevation=15)
++camera_create(target="product_display", shot_type="medium", azimuth=30, elevation=15)
++# extreme_wide / wide / medium / close / extreme_close / bird_eye / low_angle / over_shoulder
+ camera_orbit(center=[0, 100, 0], radius=500, frames=120)
+ ```
+ 
+-### Disaster Recovery
++### Disaster recovery
+ 
+ ```python
+-scene_checkpoint(name="before_change")   # in-memory exportAll snapshot
++scene_checkpoint(name="before_renovation")   # exportAll in-memory snapshot; no undo history
+ scene_checkpoint_list()
+-scene_rollback(filename="cp_before_change.ma")  # auto safety snapshot, rebinds to original path
+-# snapshots carry no undo history — call scene_snapshot() after a rollback
+-# self-contained snapshots: references are flattened (no write-back); assumes one scene file per session
++scene_rollback(filename="cp_before_renovation.ma")
++# auto safety snapshot first, then rebinds the scene name to the original path
++# call scene_snapshot() after a rollback — snapshots carry no undo history
++# self-contained: references are flattened (no write-back); one scene file per session assumed
+ ```
+ 
+-### Visual Loop (GUI sessions only)
++### Visual loop (GUI sessions only)
+ 
+ ```python
+-# WYSIWYG viewport capture (HUD/selection included — verify what the artist sees)
+-scene_viewport_snapshot(max_size=800, format="jpeg")
+-
+-# Clean single-frame playblast (optional camera; width/height rounded up to /4 server-side)
+-scene_render_preview(camera="CAM_hero", width=640, height=360)
+-
+-# Both return [image, JSON metadata]; headless sessions get gui_session_required
++scene_viewport_snapshot(max_size=800, format="jpeg")   # HUD/selection included — what the artist sees
++scene_render_preview(camera="CAM_hero", width=640, height=360)   # clean single-frame playblast
++# both return [image, JSON metadata]; headless sessions get a gui_session_required error
+ # prefer format="png" for wireframe/line-art review; trust returned metadata for actual size
+ ```
+ 
+-## CoS Format
++## CoS Notation
+ 
+-Default output uses **Chain-of-Symbol** notation, saving **65% tokens** vs JSON:
++Default output uses **Chain-of-Symbol** notation to compress scene data. The format's paper reports ~65% token savings vs JSON on its demo scenes (arXiv:2305.10276, −65.8%) — this project implements the notation; that figure is the paper's measurement, not a benchmark of this project.
+ 
+ ```
+ SCENE[164obj, 5zones] UNIT=cm UP=y
+@@ -136,72 +200,70 @@ shell (23obj) @(-11.8,178.8,145.7)
+   GRP_floor[mesh]@(0,0,0) 1121.5x20x1530.5
+ ```
+ 
+-## Codex Skills
++## Agent Skills
+ 
+-4 companion skills in `~/.codex/skills/`:
++Two **Experimental** process cards ship in `skills/`:
+ 
+-| Skill | Purpose | When to Use |
+-|-------|---------|-------------|
+-| `maya-architect` | Spatial layout + ICEV workflow | User describes spatial needs |
+-| `maya-camera` | Camera planning + animation | User needs cameras/motion |
+-| `maya-aesthetics` | Color/balance/focus analysis | User cares about visuals |
+-| `maya-safety` | Checkpoints/rollback/constraints | High-risk operations |
++| Skill | Purpose |
++|-------|---------|
++| `skills/icev-workflow` | ICEV discipline: every scene mutation goes through Inspect→Compute→Execute→Verify |
++| `skills/scene-review-playbook` | Audit playbook: what the 11 checks weigh and how to map findings to fixes |
+ 
+-## Architecture
+-
+-```
+-┌──────────────────────────────────────────┐
+-│           LLM Agent (Codex)              │
+-│  scene_snapshot() → complete spatial model│
+-│  scene_review() → 9-dimension audit score│
+-└──────────┬───────────────────────────────┘
+-           │ 20 MCP tools
+-┌──────────▼───────────────────────────────┐
+-│        MCP Server Layer                   │
+-│  scene_tools.py  → tool definitions       │
+-│  visual_tools.py → visual loop (GUI only) │
+-│  scene_cache.py  → TTL cache + dirty flag │
+-│  cos_formatter.py → CoS notation (-65%)   │
+-│  security.py     → validation + rate limit│
+-└──────────┬───────────────────────────────┘
+-           │ execute_code("import _mcp_scene; ...")
+-┌──────────▼───────────────────────────────┐
+-│        Maya Side (_mcp_scene/_mcp_visual) │
+-│  get_scene_graph() → hierarchy + BBox     │
+-│  get_spatial_index() → spatial index      │
+-│  scene_review() → 9-dimension audit       │
+-│  analyze_aesthetics() → color/balance     │
+-└──────────────────────────────────────────┘
+-```
++> Evaluated on Claude Code only; untested on Codex/Gemini CLI/Cursor. Cross-model evaluation is tracked in issue #3.
+ 
+ ## Audit Dimensions
+ 
+-`scene_review()` provides 9 universal audit dimensions:
++`scene_review()` provides 11 universal checks (score normalized to 0-100):
++
++| Check | Max pts | What it looks at |
++|-------|---------|------------------|
++| spatial | 10 | object/camera/light presence |
++| overlaps | 10 | bbox collisions (parent-child excluded) |
++| conflicts | 10 | penetration between unrelated objects |
++| zones | 5 | naming-rule zone coverage |
++| naming | 5 | production naming convention |
++| components | 10 | GRP_ grouping + nesting depth ≤ 4 |
++| orphans | 5 | empty groups / default names |
++| aesthetics | 15 | 5-dimension aesthetics (color/composition/scale/lighting/flow) |
++| lighting | 10 | three-point setup, fill ratio, decay |
++| organization | 10 | overall hierarchy health |
++| constraints | 5 | custom rule violations |
+ 
+-| Dimension | Score | Checks |
+-|-----------|-------|--------|
+-| spatial | 15 | Object/camera/light counts |
+-| overlaps | 15 | BBox collision detection |
+-| conflicts | 15 | Penetration detection |
+-| components | 15 | GRP_ grouping + nesting depth |
+-| naming | 10 | Maya naming conventions |
+-| zones | 10 | Zone coverage |
+-| aesthetics | 10 | Color harmony + balance + focal points |
+-| constraints | 5 | Safety constraints |
+-| orphans | 5 | Orphan/empty group detection |
++## Trust & Privacy
++
++- **Zero telemetry**: no phone-home — the project ships no telemetry or outbound reporting code; verify in source.
++- **Local, single-user**: the command port binds localhost only; the connected MCP client is trusted.
++- **Safety net**: a unified pipeline validates arguments + token-bucket rate limits (~100/60s reads, ~20/60s writes, per session) + pattern scan (warn-only by default) + an independent JSONL audit log across all 20 tools. It catches accidents, not malicious clients — full model in [docs/threat-model.md](docs/threat-model.md).
++- **Transactional safety**: `scene_checkpoint`/`scene_rollback` give in-memory snapshots and explicit rollback (no undo history; references flattened).
++- Vulnerability reporting: [SECURITY.md](SECURITY.md).
++
++## Versioning
++
++This project follows [Semantic Versioning](https://semver.org/):
++
++- **0.x (current 0.1.0, Alpha)**: the tool surface may still change; minor bumps carry features, no compatibility freeze.
++- **Beta**: promoted once feature-complete and external testing begins (classifier moves to `4 - Beta`).
++- **1.0.0**: public-API freeze commitment, promoted together with the `5 - Production/Stable` classifier in one commit.
++
++Releases are milestone-driven — no fixed cadence promised. Roadmap lives in GitHub issues: #2 Poly Haven thin integration (v1.1), #3 Skills program (v1.x), #4 security & permission model (v1.x), #5 export_scene + scene-graph introspection (v1.x), #6 more asset sources (exploratory), #7 real-machine checklist + v1.0 feedback (pinned).
++
++## Requirements
++
++- Autodesk Maya **2024+** (bundled Python 3.10+); the two visual-loop tools need a **GUI session** (headless/mayapy returns a structured capability error).
++- Host Python **≥3.10**; Windows / Linux / macOS.
+ 
+ ## Development
+ 
+ ```bash
+-pip install -e ".[dev]"
+-python -m pytest tests/ -q
+-semgrep scan --config auto src/
++pip install -e ".[dev]"          # or: uv pip install -e ".[dev]"
++python -m pytest tests/ -q       # tests
++ruff check src tests             # lint
++mypy src                         # typecheck
++python -m maya_mcp_server -vv    # run with DEBUG logs (-v=INFO, -vv=DEBUG)
+ ```
+ 
+-## Credits
++See [CONTRIBUTING.md](CONTRIBUTING.md) for the PR flow and [CHANGELOG.md](CHANGELOG.md) for the change log.
+ 
+-Based on [chadrik/maya-mcp-server](https://github.com/chadrik/maya-mcp-server) with spatial awareness, camera planning, aesthetic analysis, and scene auditing extensions.
+-
+-## License
++## Credits
+ 
+-MIT
++Forked from [chadrik/maya-mcp-server](https://github.com/chadrik/maya-mcp-server) — upstream MIT copyright retained (see LICENSE); this project adds the scene-intelligence layer on top of its connection stack.
+diff --git a/SECURITY.md b/SECURITY.md
+index 84aa1dc..2a95fa4 100644
+--- a/SECURITY.md
++++ b/SECURITY.md
+@@ -2,7 +2,7 @@
+ 
+ ## Scope
+ 
+-maya-mcp-server is a **local, single-user** bridge between an MCP client
++mcp-for-maya is a **local, single-user** bridge between an MCP client
+ and Autodesk Maya. The safety machinery (validation, rate limits,
+ pattern scan, audit log) is a net for accidents and confused-deputy
+ scenarios — see [docs/threat-model.md](docs/threat-model.md). It is not
+diff --git a/docs/threat-model.md b/docs/threat-model.md
+index a05ef61..afe20dd 100644
+--- a/docs/threat-model.md
++++ b/docs/threat-model.md
+@@ -1,4 +1,4 @@
+-# Threat Model — maya-mcp-server
++# Threat Model — mcp-for-maya
+ 
+ > Status: current (D-008/D-017/D-018/D-019, 2026-09-17). Source of truth
+ > for what this project's safety machinery does and does not claim.
+diff --git a/pyproject.toml b/pyproject.toml
+index 300c449..11e4fad 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -3,9 +3,9 @@ requires = ["hatchling"]
+ build-backend = "hatchling.build"
+ 
+ [project]
+-name = "maya-mcp-server"
++name = "mcp-for-maya"
+ version = "0.1.0"
+-description = "MCP server for interacting with Autodesk Maya sessions"
++description = "MCP server giving AI agents spatial awareness of Autodesk Maya scenes"
+ readme = "README.md"
+ license = "MIT"
+ requires-python = ">=3.10"
+@@ -41,12 +41,13 @@ dev = [
+ ]
+ 
+ [project.scripts]
++mcp-for-maya = "maya_mcp_server.__main__:main"
+ maya-mcp-server = "maya_mcp_server.__main__:main"
+ 
+ [project.urls]
+-Homepage = "https://github.com/chadrik/maya-mcp-server"
+-Repository = "https://github.com/chadrik/maya-mcp-server"
+-Issues = "https://github.com/chadrik/maya-mcp-server/issues"
++Homepage = "https://github.com/Xxx91n/mcp-for-maya"
++Repository = "https://github.com/Xxx91n/mcp-for-maya"
++Issues = "https://github.com/Xxx91n/mcp-for-maya/issues"
+ 
+ [tool.hatch.build.targets.wheel]
+ packages = ["src/maya_mcp_server"]
+diff --git a/skills/icev-workflow/SKILL.md b/skills/icev-workflow/SKILL.md
+new file mode 100644
+index 0000000..c45849b
+--- /dev/null
++++ b/skills/icev-workflow/SKILL.md
+@@ -0,0 +1,48 @@
++---
++name: icev-workflow
++description: "Enforce the Inspect-Compute-Execute-Verify loop for every Maya scene modification via the mcp-for-maya MCP server. Use whenever a task will create, move, rename, delete, or otherwise mutate scene objects — prevents blind edits by requiring scene_snapshot before changes and scene_assert/scene_review (plus visual tools on GUI sessions) after them."
++compatibility: "Tested on Claude Code only; requires mcp-for-maya MCP server"
++---
++
++# ICEV Workflow
++
++> **Experimental.** Evaluated on Claude Code only; untested on Codex/Gemini CLI/Cursor. Tracked in issue #3.
++
++ICEV = Inspect → Compute → Execute → Verify. Every scene mutation goes through all four phases, in order, every time. Skipping Inspect produces blind edits; skipping Verify produces unverified claims — both are the failure modes this workflow exists to prevent.
++
++## When to use
++
++- Any request that modifies the scene: create, move/rotate/scale, rename, reparent, delete, or change materials, lights, cameras.
++- Read-only questions ("what is in the scene?") need only Inspect — answer straight from `scene_snapshot`.
++
++## The loop
++
++### 1. INSPECT
++
++Call `scene_snapshot()`; add `scene_inspect(target)` for deep detail on one object or zone. Build the spatial model — names, types, positions, bounding boxes, hierarchy — BEFORE deciding anything.
++
++### 2. COMPUTE
++
++Plan changes against the snapshot data: positions, sizes, clearances, naming. Apply the production naming convention: `GRP_` groups, `GEO_` geometry, `MAT_` materials, `CAM_` cameras, `LGT_` lights, `LOC_` locators — never default Maya names. If the scene may have changed since the last snapshot, re-snapshot instead of trusting stale coordinates.
++
++### 3. EXECUTE
++
++Apply changes with `execute_code` — batch related edits into one call. Before risky or destructive operations, take `scene_checkpoint(name)` first so a rollback path exists.
++
++### 4. VERIFY
++
++- `scene_assert(expectations=...)` — verify the objects/properties you intended to change.
++- `scene_review()` — full audit when the change is structural (new groups, relayout, many objects).
++- GUI sessions only: `scene_viewport_snapshot()` (what the artist sees) or `scene_render_preview()` (clean single frame) for visual confirmation. On headless sessions these return a `gui_session_required` error — do not retry them there.
++
++## Failure handling
++
++- VERIFY fails → re-INSPECT the affected region, fix, re-verify. Never report success before a verify pass confirms it.
++- EXECUTE fails mid-change → `scene_rollback(filename)` to the last checkpoint, then `scene_snapshot()` to rebuild context — snapshots carry no undo history.
++- After any rollback, always re-snapshot; never assume the post-rollback state.
++
++## Standing rules
++
++- Never report "done" on a mutating task without a verify step in the same turn.
++- Batch related changes into one `execute_code` call; run `scene_review` after a unit of work, not between micro-edits.
++- The pipeline (validation, rate limits, pattern scan) is a safety net for accidents — treat its rejections as stop signals, not obstacles to route around.
+diff --git a/skills/scene-review-playbook/SKILL.md b/skills/scene-review-playbook/SKILL.md
+new file mode 100644
+index 0000000..666fc71
+--- /dev/null
++++ b/skills/scene-review-playbook/SKILL.md
+@@ -0,0 +1,51 @@
++---
++name: scene-review-playbook
++description: "Run and act on the mcp-for-maya scene_review audit: pick the right checks, interpret the 0-100 score and per-check results, and map common findings (orphans, naming violations, overlaps, weak aesthetics, lighting gaps) to concrete fixes. Use after structural scene changes, before reporting a scene as done, or when a scene feels disorganized."
++compatibility: "Tested on Claude Code only; requires mcp-for-maya MCP server"
++---
++
++# scene_review Playbook
++
++> **Experimental.** Evaluated on Claude Code only; untested on Codex/Gemini CLI/Cursor. Tracked in issue #3.
++
++`scene_review()` runs up to 11 deterministic checks and returns `{checks, issues, score}` — score is 0-100 (weighted per-check max points, normalized). It is an audit, not a style judge: every finding names the objects involved.
++
++## Checks and weights
++
++| check | max pts | what it looks at |
++|---|---|---|
++| spatial | 10 | object/camera/light presence vs expectations |
++| overlaps | 10 | bbox collisions (parent-child excluded) |
++| conflicts | 10 | penetration between unrelated objects |
++| zones | 5 | zone coverage vs naming-rule zones |
++| naming | 5 | GRP_/GEO_/MAT_/CAM_/LGT_/LOC_ prefix discipline |
++| components | 10 | GRP_ grouping, nesting depth ≤ 4 |
++| orphans | 5 | empty groups, default Maya names |
++| aesthetics | 15 | 5-dimension aesthetic score (color/composition/scale/lighting/flow) |
++| lighting | 10 | three-point setup, fill ratio, decay |
++| organization | 10 | overall hierarchy health |
++| constraints | 5 | custom rule violations |
++
++## How to run
++
++- Full audit: `scene_review()` — after structural changes.
++- Subset: `scene_review(checks=["overlaps","conflicts"])` — cheaper re-verify after a targeted fix.
++- Interpret: each entry in `issues[]` carries `severity` (error > warning), `check`, and object names. Fix errors first; warnings are judgment calls.
++
++## Findings → actions
++
++- `orphans`: root-level meshes or empty groups → reparent under a `GRP_*` group; delete empty groups.
++- `naming`: rename to the prefix convention; never ship `pCube1`-style names.
++- `overlaps` / `conflicts`: `scene_measure(obj_a, obj_b, mode="clearance")`, then move or resize; re-run those checks.
++- `zones` low coverage: `scene_plan` for zone mapping and auto-grouping suggestions.
++- `aesthetics` / `lighting` weak: `scene_aesthetics()` for the 5-dimension breakdown; lighting fixes follow three-point discipline (key/fill/rim).
++- `constraints` violations: read the rule type in the issue, then satisfy it or re-validate via `scene_validate`.
++
++## Custom validators
++
++`register(name, fn, severity, family)` adds checks — a trusted-agent extension mechanism, not a plugin ecosystem. A failing custom check is recorded as `check_error` without aborting the run.
++
++## Done means
++
++- errors: 0; warnings reviewed (not necessarily zero — judgment).
++- after fixes, re-run the affected checks; never re-report a stale score.
