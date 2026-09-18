@@ -630,6 +630,30 @@ class TestTypedErrors:
         assert ei.value.code == "maya_unavailable"
         assert isinstance(ei.value, MayaConnectionError)
 
+    @pytest.mark.asyncio
+    async def test_native_send_appends_newline_terminator(
+        self, maya_client: MayaClient
+    ) -> None:
+        """D-041: commandPort executes on newline - every send carries the
+        unconditional newline terminator (off-by-one guard, audit T-11 F1)."""
+        maya_client._writer.drain = AsyncMock()
+
+        class _OneShotReader:
+            def __init__(self) -> None:
+                self._done = False
+
+            async def read(self, n: int) -> bytes:
+                if self._done:
+                    return b""
+                self._done = True
+                return b'{"result": 2}\n\x00'
+
+        maya_client._reader = _OneShotReader()
+
+        await maya_client._send_receive("1+1")
+
+        maya_client._writer.write.assert_called_once_with(b"1+1\n")
+
 
 class TestMayaClientWriteModuleDeadResponse:
     """T-05/D-014c: native create_module returns errors INSIDE the result
