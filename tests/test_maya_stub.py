@@ -164,3 +164,59 @@ class TestCmdsFacade:
         scene.add_mesh("GEO_b")
         out = cmds.rename("GEO_b", "GEO_a")
         assert out == "GEO_a1"
+
+class TestGuiSurface:
+    """D-039: stub GUI surface fidelity - modelPanel camera API and a
+    type-disambiguated lookThru with warn/strict anomaly policy."""
+
+    def test_model_panel_camera_roundtrip(self, scene):
+        cmds = __import__("maya.cmds", fromlist=["x"])
+        scene.setup_gui()
+        assert cmds.modelPanel("modelPanel1", q=True, camera=True) == "persp"
+        cmds.modelPanel("modelPanel1", e=True, camera="top")
+        assert cmds.modelPanel("modelPanel1", q=True, camera=True) == "top"
+        assert ("modelPanel1", "top") in scene.model_panel_calls
+
+    def test_model_panel_exists_and_bad_panel(self, scene):
+        cmds = __import__("maya.cmds", fromlist=["x"])
+        scene.setup_gui()
+        assert cmds.modelPanel("modelPanel1", ex=True) is True
+        assert cmds.modelPanel("nope", ex=True) is False
+        with pytest.raises(RuntimeError):
+            cmds.modelPanel("nope", q=True, camera=True)
+
+    def test_model_editor_camera_edit_resolves(self, scene):
+        cmds = __import__("maya.cmds", fromlist=["x"])
+        scene.setup_gui()
+        cmds.modelEditor("modelPanel1", e=True, camera="top")
+        assert scene.panels["modelPanel1"]["camera"] == "top"
+        with pytest.raises(RuntimeError):
+            cmds.modelEditor("modelPanel1", e=True, camera="not_a_node")
+
+    def test_look_thru_type_disambiguation_both_orders(self, scene):
+        """Both positional orders work - classified by arg type, like
+        the real command (official examples show both)."""
+        cmds = __import__("maya.cmds", fromlist=["x"])
+        scene.setup_gui()
+        cmds.lookThru("top", "modelPanel1")   # object-first
+        assert scene.panels["modelPanel1"]["camera"] == "top"
+        cmds.lookThru("modelPanel2", "front")  # editor-first
+        assert scene.panels["modelPanel2"]["camera"] == "front"
+        assert scene.look_thru_calls[-2:] == [
+            ("modelPanel1", "top"),
+            ("modelPanel2", "front"),
+        ]
+
+    def test_look_thru_unclassifiable_warns_in_default_mode(self, scene):
+        cmds = __import__("maya.cmds", fromlist=["x"])
+        scene.setup_gui()
+        cmds.lookThru("modelPanel1", "not_a_camera")
+        assert scene.stub_notes, "anomaly must be recorded"
+        assert scene.panels["modelPanel1"]["camera"] == "persp"  # unchanged
+
+    def test_look_thru_unclassifiable_raises_in_strict_mode(self, scene):
+        cmds = __import__("maya.cmds", fromlist=["x"])
+        scene.setup_gui()
+        scene.stub_strict = True
+        with pytest.raises(RuntimeError):
+            cmds.lookThru("modelPanel1", "not_a_camera")

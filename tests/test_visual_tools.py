@@ -289,9 +289,10 @@ class TestPreviewContract:
         assert kw["forceOverwrite"] is True
         assert kw["editorPanelName"] == "modelPanel1"
 
-    async def test_look_thru_terminal_state(self, vtools):
+    async def test_camera_switch_terminal_state(self, vtools):
         """Net-zero: panel camera after == before; restore evidenced
-        loosely (a second lookThru back to the prior camera)."""
+        loosely (a second modelPanel camera edit back to the prior
+        camera, D-039)."""
         vtools.env.scene.add_camera("CAM_x")
         before = vtools.env.scene.panels["modelPanel1"]["camera"]
         out = await vtools.fns["scene_render_preview"](camera="CAM_x")
@@ -299,9 +300,9 @@ class TestPreviewContract:
         assert meta["camera"] == "CAM_x"
         panel = vtools.env.scene.panels["modelPanel1"]
         assert panel["camera"] == before, "terminal state == entry state"
-        calls = vtools.env.scene.look_thru_calls
+        calls = vtools.env.scene.model_panel_calls
         assert ("modelPanel1", "CAM_x") in calls
-        assert len(calls) >= 2, "a restore lookThru must have happened"
+        assert len(calls) >= 2, "a restore camera edit must have happened"
 
     async def test_current_time_restored(self, vtools):
         """Stub playblast slams the timeline (undo bug #21) - the module
