@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - Unreleased
+
+### Fixed
+
+- `scene_render_preview`/`scene_viewport_snapshot` camera switching uses the `modelPanel`
+  named-argument API instead of `cmds.lookThru`'s ambiguous positional forms; the
+  single-argument fallback path is removed (D-039).
+- `compute_lighting_quality_score` no longer raises `KeyError` on lights whose names
+  match no role keyword (D-038; module stays dormant — zero production references —
+  pending the T-06 consolidation decision).
+- `scene_review` overlap check: the parent-child exclusion now uses a DAG-path prefix
+  test instead of basename substring matching — sibling names like `GEO_wall`/`GEO_wall2`
+  are correctly flagged again (D-037).
+- Native commandPort client: commands now carry the mandatory `\n` terminator (the
+  channel executes on newline — without it a command parked in Maya's buffer until the
+  next send); a dropped/closed connection now raises `MayaUnavailableError` instead of an
+  execution error or a silent empty result, matching the Qt channel's typed errors (D-041).
+
+### Testing
+
+- Stub GUI surface: `modelPanel` added; `modelEditor`/`modelPanel` camera edits resolve
+  node names; `lookThru` rewritten type-disambiguated (both arg orders, like the real
+  command) with a warn-by-default / strict-on-demand policy for unclassifiable args
+  (D-039).
+
 ## [Unreleased]
 
 ### Added
