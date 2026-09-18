@@ -443,6 +443,7 @@ class MayaClient(BaseMayaClient):
 
         Raises:
             MayaConnectionError: If not connected
+            MayaUnavailableError: If the connection is lost mid-request
             MayaExecutionError: If communication fails or raise_on_error is True and command errors
         """
         if not self._writer or not self._reader:

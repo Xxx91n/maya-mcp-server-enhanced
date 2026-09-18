@@ -7,7 +7,7 @@ Implements 5 dimensions of design quality analysis:
 4. Lighting Quality (layer analysis, temperature, balance)
 5. Visual Flow (sight lines, circulation, leading lines, rhythm)
 
-DORMANT (T-11a/D-038): zero production references - the Maya-side inline
+DORMANT (T-11b/D-038): zero production references - the Maya-side inline
 _score_* functions in maya_scene_module.py are the live implementation.
 This module is kept for the T-06 consolidation decision (inject, or
 rewrite from the inline implementation); until then it is material,
