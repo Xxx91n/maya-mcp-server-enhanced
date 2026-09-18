@@ -2,7 +2,7 @@
 
 ## Scope
 
-maya-mcp-server is a **local, single-user** bridge between an MCP client
+mcp-for-maya is a **local, single-user** bridge between an MCP client
 and Autodesk Maya. The safety machinery (validation, rate limits,
 pattern scan, audit log) is a net for accidents and confused-deputy
 scenarios — see [docs/threat-model.md](docs/threat-model.md). It is not

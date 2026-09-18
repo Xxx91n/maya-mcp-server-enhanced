@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "maya-mcp-server"
+name = "mcp-for-maya"
 version = "0.1.0"
-description = "MCP server for interacting with Autodesk Maya sessions"
+description = "MCP server giving AI agents spatial awareness of Autodesk Maya scenes"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -41,12 +41,13 @@ dev = [
 ]
 
 [project.scripts]
+mcp-for-maya = "maya_mcp_server.__main__:main"
 maya-mcp-server = "maya_mcp_server.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/chadrik/maya-mcp-server"
-Repository = "https://github.com/chadrik/maya-mcp-server"
-Issues = "https://github.com/chadrik/maya-mcp-server/issues"
+Homepage = "https://github.com/Xxx91n/mcp-for-maya"
+Repository = "https://github.com/Xxx91n/mcp-for-maya"
+Issues = "https://github.com/Xxx91n/mcp-for-maya/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/maya_mcp_server"]

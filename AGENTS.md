@@ -55,7 +55,7 @@ tests/
 2. **Maya-side module injection** — `_mcp_scene` is injected once via `write_module` on first scene tool call
 3. **Large module handling** — GUI/Qt sessions inject modules of any size directly via the framed channel (16 MiB cap, D-013); temp-file injection is retained only for headless/native commandPort sessions
 4. **Response alignment** — `execute_code` handles both `str` and `dict` results to prevent `json.loads` errors
-5. **CoS notation** — Chain-of-Symbol format saves ~65% tokens vs raw JSON
+5. **CoS notation** — Chain-of-Symbol format compacts scene tokens (the CoS paper reports ~65% savings vs JSON on its demo scenes, arXiv 2305.10276 — a paper figure, not a local benchmark)
 
 ## ICEV Workflow
 
@@ -71,15 +71,17 @@ The audit tool is generic — works for ANY Maya project:
 
 | Dimension | Score | What it checks |
 |-----------|-------|----------------|
-| spatial | 15 | Object count, cameras, lights |
-| overlaps | 15 | BBox collision (excludes parent-child) |
-| conflicts | 15 | Penetration detection (excludes env objects like SUN) |
-| zones | 10 | Naming-rule zone coverage |
-| naming | 10 | Maya production naming convention |
-| components | 15 | GRP_ grouping + nesting depth ≤ 4 |
-| aesthetics | 10 | Color harmony + spatial balance + focal points |
-| constraints | 5 | Max objects, custom rules |
+| spatial | 10 | Object count, cameras, lights |
+| overlaps | 10 | BBox collision (excludes parent-child) |
+| conflicts | 10 | Penetration detection (excludes env objects like SUN) |
+| zones | 5 | Naming-rule zone coverage |
+| naming | 5 | Maya production naming convention |
+| components | 10 | GRP_ grouping + nesting depth ≤ 4 |
 | orphans | 5 | Empty groups, default names |
+| aesthetics | 15 | 5-dim score: color/composition/scale/lighting/flow |
+| lighting | 10 | Three-point setup, fill ratio, decay |
+| organization | 10 | Hierarchy health |
+| constraints | 5 | Max objects, custom rules |
 
 ## Maya Connection Setup Guide
 
@@ -127,13 +129,11 @@ If userSetup.py does not work, guide the user to:
 # Run tests
 python -m pytest tests/ -q
 
-# Run with debug logging
-LOGLEVEL=DEBUG python -m maya_mcp_server
+# Run with debug logging (-v=INFO, -vv=DEBUG)
+python -m maya_mcp_server -vv
 
 # Security audit
 semgrep scan --config auto src/
-python scripts/secrets.py --path src
-python scripts/dependency.py --path src
 ```
 
 ## Known Quirks
@@ -167,6 +167,7 @@ Failure to update dependent files will cause integration failures.
 | `pipeline.py` | `server.py` (middleware registration + annotations), `scene_tools.py` (annotations), `docs/threat-model.md` | Pipeline/threat-model must stay in sync |
 | `connection_guide.py` | `server.py` (maya_setup_guide params), `tests/test_connection_guide.py` | Marker-block semantics + confirm/dry_run/remove_empty_file flags |
 | `cos_formatter.py` | `scene_tools.py` (COS format output) | Formatter changes affect all tool COS outputs |
+| `maya_scene_module.py` (scene_review check names/semantics) | `skills/scene-review-playbook/SKILL.md` | Card documents the 11 checks + findings→actions; check renames/semantics changes must sync it |
 
 ### Aesthetic Module Change Checklist
 

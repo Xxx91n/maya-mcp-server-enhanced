@@ -1,4 +1,4 @@
-# Threat Model — maya-mcp-server
+# Threat Model — mcp-for-maya
 
 > Status: current (D-008/D-017/D-018/D-019, 2026-09-17). Source of truth
 > for what this project's safety machinery does and does not claim.
