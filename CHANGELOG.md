@@ -15,9 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `compute_lighting_quality_score` no longer raises `KeyError` on lights whose names
   match no role keyword (D-038; module stays dormant — zero production references —
   pending the T-06 consolidation decision).
-- `scene_review` overlap check: the parent-child exclusion now uses a DAG-path prefix
-  test instead of basename substring matching — sibling names like `GEO_wall`/`GEO_wall2`
-  are correctly flagged again (D-037).
+- `scene_review` overlap and conflict checks, and `scene_plan` near-miss: the parent-child
+  exclusion now uses a DAG-path prefix test instead of basename substring matching —
+  sibling names like `GEO_wall`/`GEO_wall2` are correctly flagged again in all three
+  dimensions (D-037).
 - Native commandPort client: commands now carry the mandatory `\n` terminator (the
   channel executes on newline — without it a command parked in Maya's buffer until the
   next send); a dropped/closed connection now raises `MayaUnavailableError` instead of an

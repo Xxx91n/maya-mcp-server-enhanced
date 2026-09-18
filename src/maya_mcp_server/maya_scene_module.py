@@ -2864,9 +2864,11 @@ def scene_review(checks=None):
                 sel = om2.MSelectionList()
                 sel.add(t)
                 dag = sel.getDagPath(0)
-                short = t.split("|")[-1]
                 wb = _world_bbox(dag)
-                obj_bounds[short] = {
+                # Key by full DAG path so the parent-child exclusion
+                # can do a real ancestor test (D-037).
+                obj_bounds[t] = {
+                    "short": t.split("|")[-1],
                     "min": [wb.min[i] for i in range(3)],
                     "max": [wb.max[i] for i in range(3)],
                 }
@@ -2874,14 +2876,16 @@ def scene_review(checks=None):
                 pass
 
         checked = set()
-        for name_a, bounds_a in obj_bounds.items():
-            for name_b, bounds_b in obj_bounds.items():
-                if name_a == name_b:
+        for path_a, bounds_a in obj_bounds.items():
+            for path_b, bounds_b in obj_bounds.items():
+                if path_a == path_b:
                     continue
-                pair_key = tuple(sorted([name_a, name_b]))
+                pair_key = tuple(sorted([path_a, path_b]))
                 if pair_key in checked:
                     continue
                 checked.add(pair_key)
+                name_a = bounds_a["short"]
+                name_b = bounds_b["short"]
 
                 cx = (bounds_a["min"][0] + bounds_a["max"][0]) / 2
                 cy = (bounds_a["min"][1] + bounds_a["max"][1]) / 2
@@ -2900,7 +2904,9 @@ def scene_review(checks=None):
                             bounds_a["min"][2] <= cz2 <= bounds_a["max"][2])
 
                 if inside_b or inside_a:
-                    is_pc = (name_a in name_b or name_b in name_a)
+                    # DAG-path prefix: true ancestor relation only (D-037).
+                    is_pc = (path_b.startswith(path_a + "|")
+                             or path_a.startswith(path_b + "|"))
                     is_grp = any(name_a.startswith(p) or name_b.startswith(p)
                                  for p in ("GRP_", "OUT_", "ALL"))
                     env_prefixes = ("SUN", "OUT_", "sky", "env")
@@ -3949,9 +3955,11 @@ def _predict_conflicts(transforms):
             sel = om2.MSelectionList()
             sel.add(t)
             dag = sel.getDagPath(0)
-            short = t.split("|")[-1]
             wb = _world_bbox(dag)
-            obj_bounds[short] = {
+            # Key by full DAG path so the parent-child exclusion
+            # can do a real ancestor test (D-037).
+            obj_bounds[t] = {
+                "short": t.split("|")[-1],
                 "min": [wb.min[i] for i in range(3)],
                 "max": [wb.max[i] for i in range(3)],
             }
@@ -3960,14 +3968,16 @@ def _predict_conflicts(transforms):
 
     # Check for near-miss collisions (within 10cm tolerance)
     checked = set()
-    for name_a, ba in obj_bounds.items():
-        for name_b, bb in obj_bounds.items():
-            if name_a >= name_b:
+    for path_a, ba in obj_bounds.items():
+        for path_b, bb in obj_bounds.items():
+            if path_a >= path_b:
                 continue
-            pair = (name_a, name_b)
+            pair = (path_a, path_b)
             if pair in checked:
                 continue
             checked.add(pair)
+            name_a = ba["short"]
+            name_b = bb["short"]
 
             # Check gap between bounding boxes
             gap_x = max(0, max(ba["min"][0], bb["min"][0]) - min(ba["max"][0], bb["max"][0]))
@@ -3976,7 +3986,9 @@ def _predict_conflicts(transforms):
 
             # If gaps are very small, it's a near-miss
             if gap_x < 10 and gap_y < 10 and gap_z < 10:
-                is_pc = name_a in name_b or name_b in name_a
+                # DAG-path prefix: true ancestor relation only (D-037).
+                is_pc = (path_b.startswith(path_a + "|")
+                         or path_a.startswith(path_b + "|"))
                 is_grp = any(name_a.startswith(p) or name_b.startswith(p)
                             for p in ("GRP_", "OUT_", "ALL"))
                 if not is_pc and not is_grp:
