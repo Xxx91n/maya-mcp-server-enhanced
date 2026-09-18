@@ -471,7 +471,10 @@ class MayaClient(BaseMayaClient):
                         timeout=self.timeout,
                     )
                     if not chunk:
-                        break
+                        raise MayaUnavailableError(
+                            f"Connection closed on {self.host}:{self.port} "
+                            "before response terminator"
+                        )
                     response_bytes += chunk
                     # Maya terminates responses with \n\x00
                     if response_bytes.endswith(b"\x00"):
@@ -504,7 +507,11 @@ class MayaClient(BaseMayaClient):
 
             except asyncio.TimeoutError as e:
                 raise MayaTimeoutError("Timeout waiting for Maya response") from e
-            except MayaExecutionError:
+            except (ConnectionError, asyncio.IncompleteReadError) as e:
+                raise MayaUnavailableError(
+                    f"Connection lost on {self.host}:{self.port}: {e}"
+                ) from e
+            except (MayaExecutionError, MayaUnavailableError):
                 raise
             except Exception as e:
                 raise MayaExecutionError(f"Error communicating with Maya: {e}") from e

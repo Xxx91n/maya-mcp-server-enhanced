@@ -613,6 +613,23 @@ class TestTypedErrors:
         assert ei.value.code == "maya_timeout"
         assert isinstance(ei.value, MayaConnectionError)
 
+    @pytest.mark.asyncio
+    async def test_native_send_receive_closed_is_unavailable(self, maya_client: MayaClient) -> None:
+        """D-041: a commandPort connection that closes mid-call maps to
+        MayaUnavailableError, matching the Qt channel's typed error."""
+        maya_client._writer.drain = AsyncMock()
+
+        class _ClosedReader:
+            async def read(self, n: int) -> bytes:
+                return b""
+
+        maya_client._reader = _ClosedReader()
+
+        with pytest.raises(MayaUnavailableError) as ei:
+            await maya_client._send_receive("1+1")
+        assert ei.value.code == "maya_unavailable"
+        assert isinstance(ei.value, MayaConnectionError)
+
 
 class TestMayaClientWriteModuleDeadResponse:
     """T-05/D-014c: native create_module returns errors INSIDE the result
