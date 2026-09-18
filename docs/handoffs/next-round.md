@@ -1,3 +1,5 @@
+> 迁移注记（T-11a/D-041④）：本文件为 next-round.md rev16 自 .scratch 迁入 docs/ 的规范副本；.scratch/ 已 gitignore（报告/audit/probe 等过程件仅存本地）。账本规范路径=docs/decision-ledger.md。
+
 # Handoff — maya-mcp-grill 下一轮任务书（rev16）
 
 > 生成时间：2026-09-18（第二轮锐评响应 grill 定稿）。供任意子 Agent 接手；结论以决策账本为唯一真源。
@@ -12,7 +14,7 @@
 
 ## 真源与上下文（先读这些）
 
-- 决策账本 .scratch/maya-mcp-grill/decision-ledger.md（D-001..D-041）——**T-11a 将迁 docs/decision-ledger.md（D-041④），本文件亦随迁**
+- 决策账本 docs/decision-ledger.md（D-001..D-041）
 - ADR docs/adr/0001..0016
 - CONTEXT.md 29 术语
 - T-10a 实施报告（含发布日清单全项）.scratch/maya-mcp-grill/reports/2026-09-18-t10a-implementation.md §11

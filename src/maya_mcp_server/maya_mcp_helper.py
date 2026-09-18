@@ -260,7 +260,7 @@ def execute(code: str, result_type: str = "NONE") -> str:
             raise RuntimeError(
                 "Results were requested but the code cannot be modified to capture a result."
                 "If you want to capture a result, make sure that the last line of code is in "
-                "the module scope (i.e. not in a function or loop"
+                "the module scope (i.e. not in a function or loop)"
             )
 
         exec(compile(modified_code, "<mcp>", "exec"), context)

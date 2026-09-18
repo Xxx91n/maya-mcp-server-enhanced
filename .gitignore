@@ -16,3 +16,4 @@ checkpoints/
 Thumbs.db
 .codex_tmp/
 dist_audit/
+.scratch/

@@ -45,10 +45,6 @@ logger = logging.getLogger(__name__)
 # Buffer size limit to prevent unbounded memory growth (10MB)
 MAX_BUFFER_SIZE = 10_485_760
 
-# Default retry configuration for execute_code
-DEFAULT_MAX_RETRIES = 2
-DEFAULT_RETRY_DELAY = 0.5  # seconds
-
 # Connect retry schedule (D-013): exponential backoff 0.5s / 1s / 2s
 CONNECT_RETRY_DELAYS = (0.5, 1.0, 2.0)
 
@@ -343,9 +339,9 @@ class BaseMayaClient(ABC):
             CommandResponse with result and error info.
             Note: stdout/stderr are delivered via MCP Resources, not returned here.
         """
-        # Use Qt server JSON protocol with retry logic for empty responses
-        # Sometimes Maya command port returns empty responses on first attempt
-        # Don't raise on execution errors - return them in the result
+        # Qt server JSON protocol over the framed channel. There is no
+        # retry: execution errors are returned in the response (never
+        # raised here) and surface to callers via the two-layer contract.
         response = await self._send_receive(
             self.EXECUTE_TEMPLATE,
             {"code": code, "result_type": result_type.value},

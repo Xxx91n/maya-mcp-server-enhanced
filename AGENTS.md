@@ -48,6 +48,13 @@ tests/
 ├── test_security.py
 └── test_session_manager.py
 
+docs/
+├── adr/                   # ADR-0001..0016 architecture decision records
+├── decision-ledger.md     # grill decision ledger — canonical path since T-11a (D-041)
+├── handoffs/              # round handoffs — canonical (next-round.md standing task book)
+├── testing.md             # real-Maya manual tier checklist
+└── threat-model.md        # threat model + security boundaries
+
 .github/
 ├── workflows/ci.yml       # lint (ruff budget gate) + test matrix ubuntu/windows x 3.10/3.x
 ├── workflows/release.yml  # tag v* -> test -> build -> publish (trusted publisher; env: pypi)
