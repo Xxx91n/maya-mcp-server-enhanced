@@ -1,5 +1,6 @@
 # Decision Ledger — maya-mcp-grill
 
+> 规范路径（T-11a/D-041④ 起）：docs/decision-ledger.md；.scratch 目录已 gitignore，过程件仅存本地。
 > Grill session for maya-mcp-server plan sharpening.
 > Entries appended only after user confirmation.
 
