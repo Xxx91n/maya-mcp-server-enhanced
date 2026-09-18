@@ -2818,7 +2818,13 @@ def scene_review(checks=None):
                     if m.get("bbox_overlap", False):
                         a = sample[i].split("|")[-1]
                         b = sample[j].split("|")[-1]
-                        is_pc = (a in sample[j] or b in sample[i])
+                        # DAG-path prefix: true ancestor relation only.
+                        # The old substring test false-positived on
+                        # siblings like |GEO_wall vs |GEO_wall2 (D-037).
+                        is_pc = (
+                            sample[j].startswith(sample[i] + "|")
+                            or sample[i].startswith(sample[j] + "|")
+                        )
                         is_grp = any(a.startswith(p) or b.startswith(p)
                                      for p in ("GRP_", "OUT_", "SUN", "ext_"))
                         if not is_pc and not is_grp:
