@@ -456,8 +456,11 @@ class MayaClient(BaseMayaClient):
 
         async with self._lock:
             try:
-                # Send command
-                self._writer.write(command.encode("utf-8"))
+                # Send command - commandPort executes on newline, so the
+                # terminator is unconditional (D-041): without it the
+                # command parks in the receive buffer until the next send
+                # flushes it through (off-by-one).
+                self._writer.write(command.encode("utf-8") + b"\n")
                 await self._writer.drain()
 
                 # Read response until null terminator
