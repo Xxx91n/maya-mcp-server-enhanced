@@ -5,7 +5,7 @@
 ```bash
 pip install -e ".[dev]"            # or: uv pip install -e ".[dev]"
 python -m pytest tests/ -q         # stub-layer suite (contract tests vs the maya.cmds stub)
-ruff check src tests               # lint — error budget is frozen, ratchet only goes down
+ruff check .                        # lint — frozen budget gate (.github/ruff-baseline.json), ratchet only goes down
 mypy src                           # typecheck — strict for new files
 python -m maya_mcp_server -vv      # run with DEBUG logs (-v=INFO, -vv=DEBUG)
 ```
@@ -20,7 +20,10 @@ House rules:
 
 - One branch per change; keep diffs small and reviewable.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) (feat / fix / docs / refactor / test / chore).
-- Baseline gates: pytest green (the maya-stub tier), ruff and mypy error counts must not increase.
+- CI gates (`.github/workflows/ci.yml`): `pytest` must be green on ubuntu + windows; the ruff budget
+  (`.github/ruff-baseline.json`) is ratchet-only-down — above budget fails, and a lower count may be
+  budgeted down in the same PR commit with the reason stated. `mypy` (221 known errors) runs locally
+  but is not a CI gate yet (full quality gate is a later round).
 
 ## Conduct
 

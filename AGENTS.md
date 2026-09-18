@@ -47,6 +47,13 @@ tests/
 ├── test_visual_tools.py         # T-08 visual loop contract tests (D-023..D-027)
 ├── test_security.py
 └── test_session_manager.py
+
+.github/
+├── workflows/ci.yml       # lint (ruff budget gate) + test matrix ubuntu/windows x 3.10/3.x
+├── workflows/release.yml  # tag v* -> test -> build -> publish (trusted publisher; env: pypi)
+├── dependabot.yml         # weekly github-actions bumps, minor+patch grouped
+├── ruff-baseline.json     # frozen lint budget {"src":N,"tests":M} — ratchet down only
+└── scripts/check_ruff_budget.py  # budget comparator used by the lint job
 ```
 
 ## Key Architecture Decisions
@@ -128,6 +135,9 @@ If userSetup.py does not work, guide the user to:
 ```bash
 # Run tests
 python -m pytest tests/ -q
+
+# Lint vs frozen budget (.github/ruff-baseline.json — ratchet down only)
+ruff check .
 
 # Run with debug logging (-v=INFO, -vv=DEBUG)
 python -m maya_mcp_server -vv
