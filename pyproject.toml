@@ -38,6 +38,7 @@ dev = [
     "types-psutil",
     "PySide6",
     "types-PySide6",
+    "pre-commit>=4.0.0",
 ]
 
 [project.scripts]

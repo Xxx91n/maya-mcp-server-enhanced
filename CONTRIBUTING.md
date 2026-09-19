@@ -4,6 +4,8 @@
 
 ```bash
 pip install -e ".[dev]"            # or: uv pip install -e ".[dev]"
+pre-commit install                  # one-time: wire git hooks (.pre-commit-config.yaml)
+pre-commit run --all-files          # full sweep — the same checks the CI lint job runs
 python -m pytest tests/ -q         # stub-layer suite (contract tests vs the maya.cmds stub)
 ruff check .                        # lint — frozen budget gate (.github/ruff-baseline.json), ratchet only goes down
 mypy src                           # typecheck — strict for new files
