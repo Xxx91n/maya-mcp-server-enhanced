@@ -47,7 +47,9 @@ async def _boom_next(context):
 
 def _domain_error_next(payload_error=None):
     async def _next(context):
-        return ToolResult(structured_content={"error": payload_error or {"code": "x", "message": "boom"}})
+        return ToolResult(
+            structured_content={"error": payload_error or {"code": "x", "message": "boom"}}
+        )
 
     return _next
 
@@ -67,12 +69,26 @@ class TestToolAnnotations:
     """All 20 tools carry the four hints (D-018/ADR-0005 matrix)."""
 
     EXPECTED = {
-        "list_sessions", "maya_setup_guide", "write_module", "execute_code",
-        "add_session", "scene_snapshot", "scene_inspect", "scene_measure",
-        "scene_assert", "scene_validate", "scene_checkpoint", "scene_rollback",
-        "scene_checkpoint_list", "camera_create", "camera_orbit",
-        "scene_aesthetics", "scene_review", "scene_plan",
-        "scene_viewport_snapshot", "scene_render_preview",
+        "list_sessions",
+        "maya_setup_guide",
+        "write_module",
+        "execute_code",
+        "add_session",
+        "scene_snapshot",
+        "scene_inspect",
+        "scene_measure",
+        "scene_assert",
+        "scene_validate",
+        "scene_checkpoint",
+        "scene_rollback",
+        "scene_checkpoint_list",
+        "camera_create",
+        "camera_orbit",
+        "scene_aesthetics",
+        "scene_review",
+        "scene_plan",
+        "scene_viewport_snapshot",
+        "scene_render_preview",
     }
 
     def test_all_20_tools_covered(self):
@@ -92,10 +108,17 @@ class TestToolAnnotations:
 
     def test_read_tools_readonly_idempotent(self):
         for name in (
-            "list_sessions", "scene_snapshot", "scene_inspect",
-            "scene_measure", "scene_assert", "scene_validate",
-            "scene_checkpoint_list", "scene_aesthetics", "scene_review",
-            "scene_viewport_snapshot", "scene_render_preview",
+            "list_sessions",
+            "scene_snapshot",
+            "scene_inspect",
+            "scene_measure",
+            "scene_assert",
+            "scene_validate",
+            "scene_checkpoint_list",
+            "scene_aesthetics",
+            "scene_review",
+            "scene_viewport_snapshot",
+            "scene_render_preview",
         ):
             assert TOOL_ANNOTATIONS[name].readOnlyHint is True, name
             assert TOOL_ANNOTATIONS[name].idempotentHint is True, name
@@ -163,9 +186,7 @@ class TestPipelineValidation:
     async def test_bad_session_key_rejected(self, tmp_path):
         pipe, _audit, log = _pipeline(tmp_path)
         with pytest.raises(InputValidationError, match="invalid_input"):
-            await pipe.on_call_tool(
-                _ctx("scene_snapshot", {"session_key": "no-port"}), _ok_next
-            )
+            await pipe.on_call_tool(_ctx("scene_snapshot", {"session_key": "no-port"}), _ok_next)
         ev = _read_events(log)[-1]
         assert ev["outcome"] == "rejected"
 
@@ -173,31 +194,21 @@ class TestPipelineValidation:
         pipe, _audit, log = _pipeline(tmp_path)
         big = "x" * (SecurityConfig().max_code_size + 1)
         with pytest.raises(InputValidationError):
-            await pipe.on_call_tool(
-                _ctx("execute_code", {"code": big}), _ok_next
-            )
+            await pipe.on_call_tool(_ctx("execute_code", {"code": big}), _ok_next)
         assert _read_events(log)[-1]["outcome"] == "rejected"
 
 
 class TestPipelineRateLimit:
     async def test_write_bucket_smaller_than_read(self, tmp_path):
-        cfg = SecurityConfig(
-            rate_limit_write_max_calls=3, rate_limit_read_max_calls=50
-        )
+        cfg = SecurityConfig(rate_limit_write_max_calls=3, rate_limit_read_max_calls=50)
         pipe = SecurityPipeline(config=cfg, audit=AuditLogger(tmp_path / "a.jsonl"))
         for _ in range(3):
-            await pipe.on_call_tool(
-                _ctx("execute_code", {"code": "1"}), _ok_next
-            )
+            await pipe.on_call_tool(_ctx("execute_code", {"code": "1"}), _ok_next)
         with pytest.raises(RateLimitExceededError, match="rate_limited"):
-            await pipe.on_call_tool(
-                _ctx("execute_code", {"code": "1"}), _ok_next
-            )
+            await pipe.on_call_tool(_ctx("execute_code", {"code": "1"}), _ok_next)
 
     async def test_read_bucket_independent(self, tmp_path):
-        cfg = SecurityConfig(
-            rate_limit_write_max_calls=2, rate_limit_read_max_calls=3
-        )
+        cfg = SecurityConfig(rate_limit_write_max_calls=2, rate_limit_read_max_calls=3)
         pipe = SecurityPipeline(config=cfg, audit=AuditLogger(tmp_path / "a.jsonl"))
         # exhaust write bucket
         for _ in range(2):
@@ -257,9 +268,7 @@ class TestPipelinePatternScan:
     async def test_code_eval_blocked(self, tmp_path):
         pipe, _audit, _log = _pipeline(tmp_path)
         with pytest.raises(PatternBlockedError):
-            await pipe.on_call_tool(
-                _ctx("execute_code", {"code": "eval('1+1')"}), _ok_next
-            )
+            await pipe.on_call_tool(_ctx("execute_code", {"code": "eval('1+1')"}), _ok_next)
 
     async def test_filename_traversal_blocked(self, tmp_path):
         pipe, _audit, _log = _pipeline(tmp_path)
@@ -284,28 +293,18 @@ class TestPipelinePatternScan:
         pipe, _audit, _log = _pipeline(tmp_path)
         # '..' in a name warns nothing and does not block (Maya-side
         # whitelist validation still applies downstream)
-        await pipe.on_call_tool(
-            _ctx("scene_checkpoint", {"name": ".."}), _ok_next
-        )
+        await pipe.on_call_tool(_ctx("scene_checkpoint", {"name": ".."}), _ok_next)
 
     async def test_exclusion_suppresses_block(self, tmp_path):
-        cfg = SecurityConfig(
-            pattern_exclusions=frozenset(
-                {("code-eval", "execute_code", "code")}
-            )
-        )
+        cfg = SecurityConfig(pattern_exclusions=frozenset({("code-eval", "execute_code", "code")}))
         pipe = SecurityPipeline(config=cfg, audit=AuditLogger(tmp_path / "a.jsonl"))
         # eval( is excluded; still warns via warn-eval
-        await pipe.on_call_tool(
-            _ctx("execute_code", {"code": "eval('1+1')"}), _ok_next
-        )
+        await pipe.on_call_tool(_ctx("execute_code", {"code": "eval('1+1')"}), _ok_next)
 
     async def test_benign_code_warns_not_blocks(self, tmp_path):
         """Patterns outside the precise block list are warn-only on code."""
         pipe, _audit, log = _pipeline(tmp_path)
-        await pipe.on_call_tool(
-            _ctx("execute_code", {"code": "__builtins__"}), _ok_next
-        )
+        await pipe.on_call_tool(_ctx("execute_code", {"code": "__builtins__"}), _ok_next)
         ev = _read_events(log)[-1]
         assert ev["outcome"] == "success"
         assert any(w["rule_id"] == "warn-builtins" for w in ev["warnings"])
@@ -313,9 +312,8 @@ class TestPipelinePatternScan:
     async def test_block_disabled_downgrades_to_warn(self, tmp_path):
         cfg = SecurityConfig(block_dangerous_patterns=False)
         pipe = SecurityPipeline(config=cfg, audit=AuditLogger(tmp_path / "a.jsonl"))
-        await pipe.on_call_tool(
-            _ctx("execute_code", {"code": "os.system('x')"}), _ok_next
-        )
+        await pipe.on_call_tool(_ctx("execute_code", {"code": "os.system('x')"}), _ok_next)
+
 
 class TestAuditJsonlContract:
     """D-018: JSONL lands on disk, one JSON object per line, jq-replayable.
@@ -326,8 +324,14 @@ class TestAuditJsonlContract:
     """
 
     REQUIRED_FIELDS = {
-        "event_id", "timestamp", "session_id", "tool_name",
-        "input_summary", "outcome", "duration_ms", "warnings",
+        "event_id",
+        "timestamp",
+        "session_id",
+        "tool_name",
+        "input_summary",
+        "outcome",
+        "duration_ms",
+        "warnings",
     }
 
     async def test_every_line_is_valid_json_object(self, tmp_path):
@@ -340,9 +344,7 @@ class TestAuditJsonlContract:
             ev = json.loads(line)  # jq-parseable: exactly one object per line
             assert self.REQUIRED_FIELDS <= set(ev), ev
             assert ev["outcome"] == "success"
-            assert ev["tool_name"] in (
-                "scene_snapshot", "execute_code", "scene_rollback"
-            )
+            assert ev["tool_name"] in ("scene_snapshot", "execute_code", "scene_rollback")
             assert isinstance(ev["input_summary"], str)
 
     async def test_replay_filter_by_tool(self, tmp_path):
@@ -380,6 +382,7 @@ class TestAuditJsonlContract:
         audit.record({"event_id": "1"})
         # read-only file forces append failure
         import os, stat
+
         os.chmod(log, stat.S_IREAD)
         try:
             audit.record({"event_id": "2"})  # must not raise
@@ -390,6 +393,7 @@ class TestAuditJsonlContract:
     def test_input_summary_no_raw_code(self, tmp_path):
         """input_summary must not carry full code/credentials (D-018)."""
         from maya_mcp_server.security import build_audit_event
+
         ev = build_audit_event(
             tool_name="execute_code",
             params={"code": "import os; os.system('rm -rf /') " * 50},
@@ -404,7 +408,6 @@ class TestAuditJsonlContract:
         assert "sha:" in ev["input_summary"]
         assert "1650B" in ev["input_summary"]
         assert ev["input_summary"].count("os.system") == 1
-
 
 
 class _ExplodingSessionContext:
@@ -426,11 +429,7 @@ async def test_session_resolution_failure_still_audited(tmp_path):
         fastmcp_context=_ExplodingSessionContext(),
     )
     await pipe.on_call_tool(ctx, _ok_next)
-    events = [
-        json.loads(line)
-        for line in log_path.read_text().splitlines()
-        if line.strip()
-    ]
+    events = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
     assert len(events) == 1
     assert events[0]["session_id"] == "_default"
     assert events[0]["outcome"] == "success"
@@ -451,9 +450,5 @@ async def test_in_tool_pipeline_error_counts_as_error(tmp_path):
         await pipe.on_call_tool(_ctx("scene_snapshot"), _no_session)
     assert "[session_unavailable]" in str(ei.value)
     assert "call add_session" in str(ei.value)
-    events = [
-        json.loads(line)
-        for line in log_path.read_text().splitlines()
-        if line.strip()
-    ]
+    events = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
     assert events[-1]["outcome"] == "error"

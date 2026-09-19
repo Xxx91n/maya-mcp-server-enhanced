@@ -33,9 +33,14 @@ from .scene import Scene
 
 
 _MODULES = (
-    "maya.api.OpenMayaUI", "maya.api.OpenMaya", "maya.api",
-    "maya.cmds", "maya",
-    "PySide6.QtCore", "PySide6.QtGui", "PySide6",
+    "maya.api.OpenMayaUI",
+    "maya.api.OpenMaya",
+    "maya.api",
+    "maya.cmds",
+    "maya",
+    "PySide6.QtCore",
+    "PySide6.QtGui",
+    "PySide6",
 )
 
 
@@ -57,9 +62,7 @@ def install(scene=None):
     om.__dict__.update({k: getattr(_om2, k) for k in dir(_om2) if not k.startswith("__")})
 
     omui = types.ModuleType("maya.api.OpenMayaUI")
-    omui.__dict__.update(
-        {k: getattr(_omui, k) for k in dir(_omui) if not k.startswith("__")}
-    )
+    omui.__dict__.update({k: getattr(_omui, k) for k in dir(_omui) if not k.startswith("__")})
 
     maya.cmds = maya_cmds
     maya.api = maya_api
@@ -88,6 +91,7 @@ def load_scene_module():
     """Import maya_scene_module fresh, bound to the installed stub."""
     sys.modules.pop("maya_mcp_server.maya_scene_module", None)
     import maya_mcp_server.maya_scene_module as msm
+
     return msm
 
 
@@ -95,10 +99,15 @@ def load_visual_module():
     """Import visual_module fresh, bound to the installed stub."""
     sys.modules.pop("maya_mcp_server.visual_module", None)
     import maya_mcp_server.visual_module as vm
+
     return vm
 
 
 __all__ = [
-    "Scene", "install", "uninstall", "load_scene_module",
-    "load_visual_module", "runtime",
+    "Scene",
+    "install",
+    "uninstall",
+    "load_scene_module",
+    "load_visual_module",
+    "runtime",
 ]

@@ -19,12 +19,14 @@ def create_module(name: str, code: str, overwrite: bool = False) -> str:
     # Validate module name components
     for part in parts:
         if not part.isidentifier():
-            return json.dumps({
-                "error": {
-                    "code": "invalid_module_name",
-                    "message": f"Invalid module name component '{part}' in '{name}'",
+            return json.dumps(
+                {
+                    "error": {
+                        "code": "invalid_module_name",
+                        "message": f"Invalid module name component '{part}' in '{name}'",
+                    }
                 }
-            })
+            )
 
     # Create parent packages as needed
     for i in range(len(parts) - 1):
@@ -40,12 +42,14 @@ def create_module(name: str, code: str, overwrite: bool = False) -> str:
                 setattr(parent_mod, "__path__", [])
 
     if name in sys.modules and not overwrite:
-        return json.dumps({
-            "error": {
-                "code": "module_exists",
-                "message": f"Module '{name}' already exists. Use overwrite=True.",
+        return json.dumps(
+            {
+                "error": {
+                    "code": "module_exists",
+                    "message": f"Module '{name}' already exists. Use overwrite=True.",
+                }
             }
-        })
+        )
 
     module = types.ModuleType(name)
     module.__file__ = f"<mcp:{name}>"
@@ -54,15 +58,16 @@ def create_module(name: str, code: str, overwrite: bool = False) -> str:
         # Execute in module namespace (standard initialization)
         exec(compiled, module.__dict__)
     except Exception as e:
-        return json.dumps({
-            "error": {
-                "code": "module_create_failed",
-                "message": (
-                    f"Failed to compile/execute module '{name}': "
-                    f"{type(e).__name__}: {e}"
-                ),
+        return json.dumps(
+            {
+                "error": {
+                    "code": "module_create_failed",
+                    "message": (
+                        f"Failed to compile/execute module '{name}': {type(e).__name__}: {e}"
+                    ),
+                }
             }
-        })
+        )
     sys.modules[name] = module
 
     # Walk up the tree and ensure each parent references its child.
@@ -70,9 +75,8 @@ def create_module(name: str, code: str, overwrite: bool = False) -> str:
     # references from previous create_module calls.
     for i in range(len(parts) - 1, 0, -1):
         parent_name = ".".join(parts[:i])
-        child_name = ".".join(parts[:i + 1])
+        child_name = ".".join(parts[: i + 1])
         if parent_name in sys.modules:
             setattr(sys.modules[parent_name], parts[i], sys.modules[child_name])
 
     return json.dumps({"success": True, "message": f"Module '{name}' created"})
-

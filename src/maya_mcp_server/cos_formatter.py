@@ -92,9 +92,10 @@ def format_inspect_cos(
         w = _r3(abs(bmax[0] - bmin[0]))
         h = _r3(abs(bmax[1] - bmin[1]))
         d = _r3(abs(bmax[2] - bmin[2]))
-        lines.append(f"  SIZE: {w}x{h}x{d} " +
-            f"BBOX:[{_r3(bmin[0])},{_r3(bmin[1])},{_r3(bmin[2])}]"
-            f"-[{_r3(bmax[0])},{_r3(bmax[1])},{_r3(bmax[2])}]")
+        lines.append(
+            f"  SIZE: {w}x{h}x{d} " + f"BBOX:[{_r3(bmin[0])},{_r3(bmin[1])},{_r3(bmin[2])}]"
+            f"-[{_r3(bmax[0])},{_r3(bmax[1])},{_r3(bmax[2])}]"
+        )
 
     # Material and mesh info
     if material:
@@ -187,6 +188,7 @@ def format_zone_map_cos(zones: list[dict[str, Any]], stats: dict[str, Any] | Non
 
 
 # --- Internal helpers ---
+
 
 def _r3(val: float) -> str:
     """Round to 3 decimal places, strip trailing zeros."""

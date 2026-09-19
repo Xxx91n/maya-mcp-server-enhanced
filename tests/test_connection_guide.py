@@ -148,11 +148,7 @@ class TestInstallMarkerBlock:
 
     def test_existing_marker_replaced_in_place(self, tmp_path):
         fake = _install(tmp_path)
-        old = (
-            "# header\n"
-            + _marker_block(7001)
-            + "# footer stays\n"
-        )
+        old = "# header\n" + _marker_block(7001) + "# footer stays\n"
         fake.user_setup_path.write_text(old, encoding="utf-8")
         with patch(
             "maya_mcp_server.connection_guide.find_maya_installations",
@@ -193,9 +189,7 @@ class TestInstallMarkerBlock:
 
     def test_unterminated_marker_refused(self, tmp_path):
         fake = _install(tmp_path)
-        fake.user_setup_path.write_text(
-            f"x = 1\n{MARKER_BEGIN}\nstuff\n", encoding="utf-8"
-        )
+        fake.user_setup_path.write_text(f"x = 1\n{MARKER_BEGIN}\nstuff\n", encoding="utf-8")
         with patch(
             "maya_mcp_server.connection_guide.find_maya_installations",
             return_value=[fake],
@@ -310,7 +304,7 @@ class TestFallbackInstructions:
 
     def test_no_false_generated_claim(self):
         instructions = get_fallback_instructions(7001)
-        assert "\u5DF2\u751F\u6210" not in instructions
+        assert "\u5df2\u751f\u6210" not in instructions
         assert "has been placed" not in instructions
 
     def test_no_hardcoded_user_path(self):
@@ -329,8 +323,13 @@ class TestConnectionDiagnostics:
         diag = get_connection_diagnostics(7001)
         assert isinstance(diag, dict)
         for k in (
-            "platform", "port", "maya_running", "port_open",
-            "issues", "suggestions", "user_setup_found",
+            "platform",
+            "port",
+            "maya_running",
+            "port_open",
+            "issues",
+            "suggestions",
+            "user_setup_found",
         ):
             assert k in diag
 
@@ -358,12 +357,14 @@ class TestFindMayaInstallations:
     def test_linux_finds_home_maya(self, tmp_path):
         scripts_dir = tmp_path / "maya" / "2024" / "scripts"
         scripts_dir.mkdir(parents=True)
-        with patch(
-            "maya_mcp_server.utils.get_platform", return_value="linux"
-        ), patch(
-            "maya_mcp_server.connection_guide.get_platform",
-            return_value="linux",
-        ), patch.object(Path, "home", return_value=tmp_path):
+        with (
+            patch("maya_mcp_server.utils.get_platform", return_value="linux"),
+            patch(
+                "maya_mcp_server.connection_guide.get_platform",
+                return_value="linux",
+            ),
+            patch.object(Path, "home", return_value=tmp_path),
+        ):
             results = find_maya_installations()
         assert any(r.version == "2024" for r in results)
 
@@ -391,9 +392,7 @@ def test_uninstall_keeps_lines_quoting_marker(tmp_path):
     that merely quote the marker text."""
     fake = _install(tmp_path)
     quoted = f"# remember: '{MARKER_BEGIN}' marks the managed block\n"
-    fake.user_setup_path.write_text(
-        quoted + _marker_block(7001), encoding="utf-8"
-    )
+    fake.user_setup_path.write_text(quoted + _marker_block(7001), encoding="utf-8")
     with patch(
         "maya_mcp_server.connection_guide.find_maya_installations",
         return_value=[fake],

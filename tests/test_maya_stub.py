@@ -85,8 +85,9 @@ class TestSceneGraph:
 
     def test_world_bbox_rotated_8_corners(self, scene):
         # 2x1x1 box rotated 45 deg about Y: world XZ extent = 3*sqrt(2)/2
-        box = scene.add_mesh("GEO_rot", bbox_min=(-1, -0.5, -0.5),
-                             bbox_max=(1, 0.5, 0.5), r=(0, 45, 0))
+        box = scene.add_mesh(
+            "GEO_rot", bbox_min=(-1, -0.5, -0.5), bbox_max=(1, 0.5, 0.5), r=(0, 45, 0)
+        )
         wb = scene.object_bbox(box)  # local space bbox
         wm = scene.inclusive_matrix(box)
         out = MBoundingBox()
@@ -100,8 +101,7 @@ class TestSceneGraph:
     def test_naive_minmax_transform_is_wrong(self, scene):
         # Corner-at-origin box rotated 45 deg: min*M/max*M shortcut gives a
         # DIFFERENT (wrong) world AABB than the 8-corner transform.
-        box = scene.add_mesh("GEO_off", bbox_min=(0, 0, 0),
-                             bbox_max=(2, 1, 1), r=(0, 45, 0))
+        box = scene.add_mesh("GEO_off", bbox_min=(0, 0, 0), bbox_max=(2, 1, 1), r=(0, 45, 0))
         wb = scene.object_bbox(box)
         wm = scene.inclusive_matrix(box)
         out = MBoundingBox()
@@ -122,6 +122,7 @@ class TestSceneGraph:
 class TestCmdsFacade:
     def test_ls_type_long(self, scene):
         import sys
+
         cmds = sys.modules["maya.cmds"]
         scene.add_mesh("GEO_a")
         trs = cmds.ls(type="transform", long=True)
@@ -165,6 +166,7 @@ class TestCmdsFacade:
         out = cmds.rename("GEO_b", "GEO_a")
         assert out == "GEO_a1"
 
+
 class TestGuiSurface:
     """D-039: stub GUI surface fidelity - modelPanel camera API and a
     type-disambiguated lookThru with warn/strict anomaly policy."""
@@ -198,7 +200,7 @@ class TestGuiSurface:
         the real command (official examples show both)."""
         cmds = __import__("maya.cmds", fromlist=["x"])
         scene.setup_gui()
-        cmds.lookThru("top", "modelPanel1")   # object-first
+        cmds.lookThru("top", "modelPanel1")  # object-first
         assert scene.panels["modelPanel1"]["camera"] == "top"
         cmds.lookThru("modelPanel2", "front")  # editor-first
         assert scene.panels["modelPanel2"]["camera"] == "front"

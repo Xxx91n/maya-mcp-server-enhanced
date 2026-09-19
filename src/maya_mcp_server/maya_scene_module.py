@@ -19,6 +19,7 @@ import maya.cmds as cmds
 
 # --- Internal helpers ---
 
+
 def _err(code: str, message: str, suggestion: "str | None" = None) -> dict:
     """Maya-domain error result (D-019): {"error": {code, message, suggestion?}}."""
     err: dict = {"code": code, "message": message}
@@ -62,8 +63,13 @@ def _classify_node(dag: "om2.MDagPath") -> str:
                     return "mesh"
                 elif ctype in ("camera", "stereoRigCamera"):
                     return "camera"
-                elif ctype in ("areaLight", "directionalLight", "pointLight",
-                               "spotLight", "volumeLight"):
+                elif ctype in (
+                    "areaLight",
+                    "directionalLight",
+                    "pointLight",
+                    "spotLight",
+                    "volumeLight",
+                ):
                     return "light"
                 elif ctype == "nurbsCurve":
                     return "curve"
@@ -76,8 +82,7 @@ def _classify_node(dag: "om2.MDagPath") -> str:
             return "mesh"
         elif mtype in ("camera", "stereoRigCamera"):
             return "camera"
-        elif mtype in ("areaLight", "directionalLight", "pointLight",
-                       "spotLight", "volumeLight"):
+        elif mtype in ("areaLight", "directionalLight", "pointLight", "spotLight", "volumeLight"):
             return "light"
         return "unknown"
     except Exception:
@@ -180,6 +185,7 @@ def _world_bbox(dag: "om2.MDagPath") -> "om2.MBoundingBox":
 
 
 # --- Public API ---
+
 
 def get_scene_graph(detail_level="compact") -> dict:
     """Return complete scene spatial description in one call.
@@ -403,8 +409,7 @@ def get_zone_map(patterns=None) -> dict:
         # Compute center
         if zone["bbox_min"][0] != float("inf"):
             zone["center"] = [
-                _round3((zone["bbox_min"][i] + zone["bbox_max"][i]) / 2)
-                for i in range(3)
+                _round3((zone["bbox_min"][i] + zone["bbox_max"][i]) / 2) for i in range(3)
             ]
             zone["bbox_min"] = _round3_list(zone["bbox_min"])
             zone["bbox_max"] = _round3_list(zone["bbox_max"])
@@ -605,10 +610,7 @@ def measure(obj_a, obj_b, mode="center") -> dict:
         # Compute gap distance on each axis
         gaps = []
         for i in range(3):
-            gap = max(
-                0,
-                max(world_min_a[i], world_min_b[i]) - min(world_max_a[i], world_max_b[i])
-            )
+            gap = max(0, max(world_min_a[i], world_min_b[i]) - min(world_max_a[i], world_max_b[i]))
             gaps.append(_round3(gap))
         result["details"] = {"gaps_xyz": gaps, "overlapping": overlap}
 
@@ -647,10 +649,7 @@ def measure(obj_a, obj_b, mode="center") -> dict:
         # Negative: penetration depth (min translation needed to separate).
         gaps = []
         for i in range(3):
-            gaps.append(
-                max(world_min_a[i], world_min_b[i])
-                - min(world_max_a[i], world_max_b[i])
-            )
+            gaps.append(max(world_min_a[i], world_min_b[i]) - min(world_max_a[i], world_max_b[i]))
         if any(g >= 0 for g in gaps):
             dist = math.sqrt(sum(max(0.0, g) ** 2 for g in gaps))
         else:
@@ -764,12 +763,14 @@ def assert_scene_state(expectations_json) -> dict:
                 # exists:false on a missing object is a pass
                 passed += 1
             else:
-                mismatches.append({
-                    "object": obj_name,
-                    "property": "existence",
-                    "expected": "exists",
-                    "actual": "not found",
-                })
+                mismatches.append(
+                    {
+                        "object": obj_name,
+                        "property": "existence",
+                        "expected": "exists",
+                        "actual": "not found",
+                    }
+                )
             continue
 
         # Check position
@@ -781,20 +782,24 @@ def assert_scene_state(expectations_json) -> dict:
                 exp_pos = expected["position"]
                 # Allow 1 unit tolerance
                 if any(abs(a - e) > 1.0 for a, e in zip(actual_pos, exp_pos)):
-                    mismatches.append({
-                        "object": obj_name,
-                        "property": "position",
-                        "expected": exp_pos,
-                        "actual": actual_pos,
-                    })
+                    mismatches.append(
+                        {
+                            "object": obj_name,
+                            "property": "position",
+                            "expected": exp_pos,
+                            "actual": actual_pos,
+                        }
+                    )
                 else:
                     passed += 1
             except Exception as e:
-                mismatches.append({
-                    "object": obj_name,
-                    "property": "position",
-                    "error": {"code": "check_failed", "message": str(e)},
-                })
+                mismatches.append(
+                    {
+                        "object": obj_name,
+                        "property": "position",
+                        "error": {"code": "check_failed", "message": str(e)},
+                    }
+                )
 
         # Check bbox_max
         if "bbox_max" in expected:
@@ -804,20 +809,24 @@ def assert_scene_state(expectations_json) -> dict:
                 actual_max = _vec3_to_list(bbox.max)
                 exp_max = expected["bbox_max"]
                 if any(abs(a - e) > 1.0 for a, e in zip(actual_max, exp_max)):
-                    mismatches.append({
-                        "object": obj_name,
-                        "property": "bbox_max",
-                        "expected": exp_max,
-                        "actual": actual_max,
-                    })
+                    mismatches.append(
+                        {
+                            "object": obj_name,
+                            "property": "bbox_max",
+                            "expected": exp_max,
+                            "actual": actual_max,
+                        }
+                    )
                 else:
                     passed += 1
             except Exception as e:
-                mismatches.append({
-                    "object": obj_name,
-                    "property": "bbox_max",
-                    "error": {"code": "check_failed", "message": str(e)},
-                })
+                mismatches.append(
+                    {
+                        "object": obj_name,
+                        "property": "bbox_max",
+                        "error": {"code": "check_failed", "message": str(e)},
+                    }
+                )
 
         # Check bbox_min
         if "bbox_min" in expected:
@@ -827,20 +836,24 @@ def assert_scene_state(expectations_json) -> dict:
                 actual_min = _vec3_to_list(bbox.min)
                 exp_min = expected["bbox_min"]
                 if any(abs(a - e) > 1.0 for a, e in zip(actual_min, exp_min)):
-                    mismatches.append({
-                        "object": obj_name,
-                        "property": "bbox_min",
-                        "expected": exp_min,
-                        "actual": actual_min,
-                    })
+                    mismatches.append(
+                        {
+                            "object": obj_name,
+                            "property": "bbox_min",
+                            "expected": exp_min,
+                            "actual": actual_min,
+                        }
+                    )
                 else:
                     passed += 1
             except Exception as e:
-                mismatches.append({
-                    "object": obj_name,
-                    "property": "bbox_min",
-                    "error": {"code": "check_failed", "message": str(e)},
-                })
+                mismatches.append(
+                    {
+                        "object": obj_name,
+                        "property": "bbox_min",
+                        "error": {"code": "check_failed", "message": str(e)},
+                    }
+                )
 
         # Check existence only
         if "exists" in expected:
@@ -848,37 +861,43 @@ def assert_scene_state(expectations_json) -> dict:
             if expected["exists"]:
                 passed += 1  # We already found it above
             else:
-                mismatches.append({
-                    "object": obj_name,
-                    "property": "existence",
-                    "expected": "not exists",
-                    "actual": "exists",
-                })
+                mismatches.append(
+                    {
+                        "object": obj_name,
+                        "property": "existence",
+                        "expected": "not exists",
+                        "actual": "exists",
+                    }
+                )
 
         # Check material
         if "material" in expected:
             checked += 1
             actual_mat = _get_material_for_dag(dag)
             if actual_mat != expected["material"]:
-                mismatches.append({
-                    "object": obj_name,
-                    "property": "material",
-                    "expected": expected["material"],
-                    "actual": actual_mat,
-                })
+                mismatches.append(
+                    {
+                        "object": obj_name,
+                        "property": "material",
+                        "expected": expected["material"],
+                        "actual": actual_mat,
+                    }
+                )
             else:
                 passed += 1
 
-    return {"passed": len(mismatches) == 0, "checked_count": checked, "passed_count": passed, "mismatches": mismatches}
-
-
-
-
+    return {
+        "passed": len(mismatches) == 0,
+        "checked_count": checked,
+        "passed_count": passed,
+        "mismatches": mismatches,
+    }
 
 
 # ============================================================
 # P0: Spatial Constraint Validation
 # ============================================================
+
 
 def check_constraints(rules):
     """Check scene against spatial constraints.
@@ -922,21 +941,24 @@ def check_constraints(rules):
                     pairs_checked += 1
                     try:
                         m = measure(
-                            transforms[i].split("|")[-1],
-                            transforms[j].split("|")[-1],
-                            "clearance"
+                            transforms[i].split("|")[-1], transforms[j].split("|")[-1], "clearance"
                         )
                         checked += 1
                         # Negative clearance = penetration — that IS a violation.
                         # Skip errored measurements: they carry distance 0.0
                         # and would report a ghost penetration otherwise.
                         if "error" not in m and m.get("distance", 999) < value:
-                            violations.append({
-                                "type": "min_clearance",
-                                "objects": [transforms[i].split("|")[-1], transforms[j].split("|")[-1]],
-                                "actual": m["distance"],
-                                "required": value,
-                            })
+                            violations.append(
+                                {
+                                    "type": "min_clearance",
+                                    "objects": [
+                                        transforms[i].split("|")[-1],
+                                        transforms[j].split("|")[-1],
+                                    ],
+                                    "actual": m["distance"],
+                                    "required": value,
+                                }
+                            )
                     except Exception:
                         pass
 
@@ -944,11 +966,13 @@ def check_constraints(rules):
             total = len(cmds.ls(type="transform", long=True) or [])
             checked += 1
             if total > value:
-                violations.append({
-                    "type": "max_objects",
-                    "actual": total,
-                    "required": value,
-                })
+                violations.append(
+                    {
+                        "type": "max_objects",
+                        "actual": total,
+                        "required": value,
+                    }
+                )
 
         elif rtype == "no_overlap":
             transforms = cmds.ls(type="transform", long=True) or []
@@ -960,16 +984,19 @@ def check_constraints(rules):
                     pairs_checked += 1
                     try:
                         m = measure(
-                            transforms[i].split("|")[-1],
-                            transforms[j].split("|")[-1],
-                            "bbox"
+                            transforms[i].split("|")[-1], transforms[j].split("|")[-1], "bbox"
                         )
                         checked += 1
                         if "error" not in m and m.get("bbox_overlap", False):
-                            violations.append({
-                                "type": "overlap",
-                                "objects": [transforms[i].split("|")[-1], transforms[j].split("|")[-1]],
-                            })
+                            violations.append(
+                                {
+                                    "type": "overlap",
+                                    "objects": [
+                                        transforms[i].split("|")[-1],
+                                        transforms[j].split("|")[-1],
+                                    ],
+                                }
+                            )
                     except Exception:
                         pass
 
@@ -985,9 +1012,23 @@ def check_constraints(rules):
                         height = abs(bbox.max[1] - bbox.min[1])
                         checked += 1
                         if rtype == "min_height" and height < value:
-                            violations.append({"type": rtype, "object": oname, "actual": round(height, 1), "required": value})
+                            violations.append(
+                                {
+                                    "type": rtype,
+                                    "object": oname,
+                                    "actual": round(height, 1),
+                                    "required": value,
+                                }
+                            )
                         elif rtype == "max_height" and height > value:
-                            violations.append({"type": rtype, "object": oname, "actual": round(height, 1), "required": value})
+                            violations.append(
+                                {
+                                    "type": rtype,
+                                    "object": oname,
+                                    "actual": round(height, 1),
+                                    "required": value,
+                                }
+                            )
                     except Exception:
                         pass
 
@@ -1020,7 +1061,6 @@ def check_constraints(rules):
 _CHECKPOINT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _CHECKPOINT_FILE_RE = re.compile(r"^(cp|prev)_[A-Za-z0-9_-]+\.ma$")
 _MAYA_ASCII_MAGIC = "//Maya ASCII"
-
 
 
 def _scene_file_path() -> str:
@@ -1095,9 +1135,7 @@ def _ensure_checkpoint_dir(cp_dir: str) -> dict[str, Any] | None:
         try:
             os.makedirs(cp_dir, exist_ok=True)
         except Exception as e:
-            return _err(
-                "dir_create_failed", f"Cannot create checkpoints dir {cp_dir}: {e}"
-            )
+            return _err("dir_create_failed", f"Cannot create checkpoints dir {cp_dir}: {e}")
     if not os.access(cp_dir, os.W_OK):
         return _err(
             "dir_not_writable",
@@ -1117,8 +1155,7 @@ def _write_snapshot(cp_path: str) -> dict[str, Any] | None:
     import os
 
     try:
-        cmds.file(cp_path, exportAll=True, type="mayaAscii",
-                  force=True, prompt=False)
+        cmds.file(cp_path, exportAll=True, type="mayaAscii", force=True, prompt=False)
     except Exception as e:
         return _err("snapshot_write_failed", f"exportAll snapshot failed: {e}")
     if not os.path.exists(cp_path):
@@ -1182,9 +1219,7 @@ def _rb_error(
     return d
 
 
-def save_checkpoint(
-    name: str | None = None, overwrite: bool = False
-) -> dict[str, Any]:
+def save_checkpoint(name: str | None = None, overwrite: bool = False) -> dict[str, Any]:
     """Save a real scene snapshot (exportAll of memory state).
 
     Args:
@@ -1244,8 +1279,7 @@ def save_checkpoint(
             out = _err(
                 "checkpoint_exists",
                 f"Checkpoint '{name}' already exists as {cp_filename}",
-                "pass overwrite=True to replace it "
-                "(the existing file is preserved via rename)",
+                "pass overwrite=True to replace it (the existing file is preserved via rename)",
             )
             out["existing"] = cp_filename
             return out
@@ -1310,20 +1344,20 @@ def list_checkpoints() -> dict[str, Any]:
         except OSError:
             continue
         fn = os.path.basename(f)
-        checkpoints.append({
-            "filename": fn,
-            "path": f,
-            "size_mb": round(stat.st_size / 1024 / 1024, 2),
-            "modified": stat.st_mtime,
-            "adhoc": fn.startswith("cp_adhoc_"),
-        })
+        checkpoints.append(
+            {
+                "filename": fn,
+                "path": f,
+                "size_mb": round(stat.st_size / 1024 / 1024, 2),
+                "modified": stat.st_mtime,
+                "adhoc": fn.startswith("cp_adhoc_"),
+            }
+        )
 
     return {"checkpoints": checkpoints, "count": len(checkpoints)}
 
 
-def rollback_to_checkpoint(
-    filename: str, discard_current_state: bool = False
-) -> dict[str, Any]:
+def rollback_to_checkpoint(filename: str, discard_current_state: bool = False) -> dict[str, Any]:
     """Roll back to a checkpoint: open it, then rebind to the original path.
 
     S2 semantics: the scene ends up named after the file it was rolled
@@ -1353,7 +1387,9 @@ def rollback_to_checkpoint(
         err0 = derr["error"]
         if isinstance(err0, dict):
             return _rb_error(
-                err0.get("code", "internal"), err0["message"], scene_before,
+                err0.get("code", "internal"),
+                err0["message"],
+                scene_before,
                 suggestion=err0.get("suggestion"),
                 original_file_status=derr.get("original_file_status"),
             )
@@ -1372,7 +1408,8 @@ def rollback_to_checkpoint(
             "invalid_filename",
             f"Invalid checkpoint filename: {filename!r}",
             scene_before,
-            suggestion="use a filename from scene_checkpoint_list (cp_*.ma / prev_*.ma)")
+            suggestion="use a filename from scene_checkpoint_list (cp_*.ma / prev_*.ma)",
+        )
     cp_path = os.path.join(cp_dir, filename)
     try:
         inside = os.path.commonpath(
@@ -1401,15 +1438,14 @@ def rollback_to_checkpoint(
     except Exception as e:
         return _rb_error(
             "snapshot_lost",
-            f"Checkpoint snapshot lost (快照已丢失): {filename} — "
-            f"unreadable: {e}",
+            f"Checkpoint snapshot lost (快照已丢失): {filename} — unreadable: {e}",
             scene_before,
             suggestion="check filesystem permissions on the checkpoints dir",
         )
     if _MAYA_ASCII_MAGIC not in head:
         return _rb_error(
             "snapshot_lost",
-            f"Checkpoint snapshot lost (\u5FEB\u7167\u5DF2\u4E22\u5931): {filename} \u2014 missing "
+            f"Checkpoint snapshot lost (\u5feb\u7167\u5df2\u4e22\u5931): {filename} \u2014 missing "
             "//Maya ASCII header, file was replaced or corrupted",
             scene_before,
             suggestion="delete the corrupt file and re-create the checkpoint",
@@ -1425,26 +1461,33 @@ def rollback_to_checkpoint(
             return _rb_error(
                 "auto_snapshot_failed",
                 f"auto_before_rollback snapshot failed, rollback aborted: {detail}",
-                scene_before, aborted=True,
+                scene_before,
+                aborted=True,
                 suggestion="fix the snapshot failure, or pass "
-                           "discard_current_state=True to roll back without "
-                           "a safety snapshot")
+                "discard_current_state=True to roll back without "
+                "a safety snapshot",
+            )
         safety_snapshot = "skipped_by_user"
     else:
         safety_snapshot = auto["path"]
         if discard_current_state:
-            warning = ("discard_current_state=True was passed but the safety "
-                       "snapshot succeeded; the flag had no effect.")
+            warning = (
+                "discard_current_state=True was passed but the safety "
+                "snapshot succeeded; the flag had no effect."
+            )
 
     try:
         cmds.file(cp_path, open=True, force=True, prompt=False)
     except Exception as e:
         return _rb_error(
             "open_failed",
-            f"Failed to open checkpoint: {e}", scene_before,
-            scene_after=_scene_file_path(), safety_snapshot=safety_snapshot,
+            f"Failed to open checkpoint: {e}",
+            scene_before,
+            scene_after=_scene_file_path(),
+            safety_snapshot=safety_snapshot,
             suggestion="scene may be in a partial state \u2014 call scene_snapshot "
-                       "to rebuild context")
+            "to rebuild context",
+        )
 
     if scene_before:
         try:
@@ -1453,10 +1496,12 @@ def rollback_to_checkpoint(
             return _rb_error(
                 "rebind_failed",
                 f"Checkpoint opened but rebind to original scene path failed: {e}",
-                scene_before, scene_after=_scene_file_path(),
+                scene_before,
+                scene_after=_scene_file_path(),
                 safety_snapshot=safety_snapshot,
                 suggestion="call scene_snapshot to rebuild context; save the "
-                           "scene manually to fix the file name")
+                "scene manually to fix the file name",
+            )
         rebound_to = scene_before
     else:
         rebound_to = None
@@ -1540,6 +1585,7 @@ def create_camera_shot(target, shot_type="medium", name="shot_cam", angle=None):
     elevation = (angle or {}).get("elevation", 15)
 
     import math
+
     az_rad = math.radians(azimuth)
     el_rad = math.radians(elevation)
 
@@ -1560,7 +1606,8 @@ def create_camera_shot(target, shot_type="medium", name="shot_cam", angle=None):
     # Aim at target using orient constraint or manual rotation
     try:
         cmds.aimConstraint(
-            target, cam_transform,
+            target,
+            cam_transform,
             aimVector=[0, 0, -1],
             upVector=[0, 1, 0],
             worldUpType="scene",
@@ -1568,10 +1615,11 @@ def create_camera_shot(target, shot_type="medium", name="shot_cam", angle=None):
     except Exception:
         # Fallback: calculate rotation manually
         import math
+
         dx = target_pos[0] - cam_x
         dy = target_pos[1] - cam_y
         dz = target_pos[2] - cam_z
-        dist_xz = math.sqrt(dx*dx + dz*dz)
+        dist_xz = math.sqrt(dx * dx + dz * dz)
         if dist_xz > 0:
             ry = math.degrees(math.atan2(-dx, -dz))
             rx = math.degrees(math.atan2(dy, dist_xz))
@@ -1633,7 +1681,8 @@ def create_orbit_camera(center, radius=500, frames=120, name="orbit_cam"):
     warnings = []
     try:
         cmds.aimConstraint(
-            loc_transform, cam_transform,
+            loc_transform,
+            cam_transform,
             aimVector=[0, 0, -1],
             upVector=[0, 1, 0],
             worldUpType="scene",
@@ -1656,7 +1705,6 @@ def create_orbit_camera(center, radius=500, frames=120, name="orbit_cam"):
     }
 
 
-
 # ============================================================
 # P1: Aesthetic Analysis (Enhanced Professional Engine)
 # ============================================================
@@ -1664,25 +1712,31 @@ def create_orbit_camera(center, radius=500, frames=120, name="orbit_cam"):
 # Maya production standards (unified, no duplicates)
 _MAYA_STANDARDS = {
     # Naming
-    "forbidden_prefixes": ["pCube", "pSphere", "pCylinder", "pCone", "nurbsCircle",
-                           "polySurface", "group", "null", "untitled", "default"],
+    "forbidden_prefixes": [
+        "pCube",
+        "pSphere",
+        "pCylinder",
+        "pCone",
+        "nurbsCircle",
+        "polySurface",
+        "group",
+        "null",
+        "untitled",
+        "default",
+    ],
     "required_group_prefix": "GRP_",
     "max_nesting_depth": 4,
-
     # Spatial
     "max_objects_soft": 500,
     "max_objects_hard": 2000,
     "max_cameras_keep": 10,
     "min_lights": 3,
-
     # Componentization
     "min_objects_per_group": 2,
     "require_groups_for": ["mesh", "light", "camera"],
-
     # Architecture
     "min_clearance_cm": 5,
     "overlap_tolerance_cm": 1,
-
     # Retail/Pop-up standards
     "aisle_main_min_cm": 180,
     "aisle_secondary_min_cm": 120,
@@ -1755,19 +1809,32 @@ def analyze_aesthetics():
                         break
 
             name = fn.name()
-            is_focal = any(kw in name.lower() for kw in
-                          ["kitty", "hello_kitty", "ip_", "character", "figure",
-                           "hero", "focal", "main_display", "centerpiece"])
+            is_focal = any(
+                kw in name.lower()
+                for kw in [
+                    "kitty",
+                    "hello_kitty",
+                    "ip_",
+                    "character",
+                    "figure",
+                    "hero",
+                    "focal",
+                    "main_display",
+                    "centerpiece",
+                ]
+            )
 
-            objects.append({
-                "name": name,
-                "position": pos,
-                "bbox_size": [size_x, size_y, size_z],
-                "size": max(size_x, size_y, size_z),
-                "color": mat_color,
-                "material": mat,
-                "is_focal": is_focal,
-            })
+            objects.append(
+                {
+                    "name": name,
+                    "position": pos,
+                    "bbox_size": [size_x, size_y, size_z],
+                    "size": max(size_x, size_y, size_z),
+                    "color": mat_color,
+                    "material": mat,
+                    "is_focal": is_focal,
+                }
+            )
         except Exception:
             pass
 
@@ -1779,8 +1846,16 @@ def analyze_aesthetics():
             light_transform = parent[0]
             ltype = cmds.nodeType(ls_name)
 
-            color = cmds.getAttr(f"{ls_name}.color")[0] if cmds.objExists(f"{ls_name}.color") else [1, 1, 1]
-            intensity = cmds.getAttr(f"{ls_name}.intensity") if cmds.objExists(f"{ls_name}.intensity") else 1.0
+            color = (
+                cmds.getAttr(f"{ls_name}.color")[0]
+                if cmds.objExists(f"{ls_name}.color")
+                else [1, 1, 1]
+            )
+            intensity = (
+                cmds.getAttr(f"{ls_name}.intensity")
+                if cmds.objExists(f"{ls_name}.intensity")
+                else 1.0
+            )
 
             # Position from transform
             pos = cmds.xform(light_transform, q=True, ws=True, t=True) or [0, 0, 0]
@@ -1811,28 +1886,42 @@ def analyze_aesthetics():
             area_size = None
             if ltype in ("areaLight",) and cmds.objExists(f"{ls_name}.areaWidth"):
                 aw = cmds.getAttr(f"{ls_name}.areaWidth")
-                ah = cmds.getAttr(f"{ls_name}.areaHeight") if cmds.objExists(f"{ls_name}.areaHeight") else aw
+                ah = (
+                    cmds.getAttr(f"{ls_name}.areaHeight")
+                    if cmds.objExists(f"{ls_name}.areaHeight")
+                    else aw
+                )
                 area_size = [aw, ah]
 
             # Diffuse/Specular contribution
-            diffuse = cmds.getAttr(f"{ls_name}.emitDiffuse") if cmds.objExists(f"{ls_name}.emitDiffuse") else True
-            specular = cmds.getAttr(f"{ls_name}.emitSpecular") if cmds.objExists(f"{ls_name}.emitSpecular") else True
+            diffuse = (
+                cmds.getAttr(f"{ls_name}.emitDiffuse")
+                if cmds.objExists(f"{ls_name}.emitDiffuse")
+                else True
+            )
+            specular = (
+                cmds.getAttr(f"{ls_name}.emitSpecular")
+                if cmds.objExists(f"{ls_name}.emitSpecular")
+                else True
+            )
 
-            lights.append({
-                "name": light_transform.split("|")[-1],
-                "type": ltype,
-                "color": list(color),
-                "intensity": intensity,
-                "position": [round(v, 1) for v in pos],
-                "rotation": [round(v, 1) for v in rot],
-                "decay": decay,
-                "shadow": shadow_on,
-                "cone_angle": round(cone_angle, 1) if cone_angle else None,
-                "penumbra": round(penumbra, 1) if penumbra else None,
-                "area_size": area_size,
-                "diffuse": bool(diffuse),
-                "specular": bool(specular),
-            })
+            lights.append(
+                {
+                    "name": light_transform.split("|")[-1],
+                    "type": ltype,
+                    "color": list(color),
+                    "intensity": intensity,
+                    "position": [round(v, 1) for v in pos],
+                    "rotation": [round(v, 1) for v in rot],
+                    "decay": decay,
+                    "shadow": shadow_on,
+                    "cone_angle": round(cone_angle, 1) if cone_angle else None,
+                    "penumbra": round(penumbra, 1) if penumbra else None,
+                    "area_size": area_size,
+                    "diffuse": bool(diffuse),
+                    "specular": bool(specular),
+                }
+            )
         except Exception:
             pass
 
@@ -1890,18 +1979,29 @@ def _compute_full_aesthetic_score(materials, objects, scene_bounds, lights, zone
     }
     overall = sum(dimensions[d]["score"] * weights[d] for d in dimensions)
 
-    if overall >= 90: grade = "S"
-    elif overall >= 80: grade = "A"
-    elif overall >= 70: grade = "B"
-    elif overall >= 60: grade = "C"
-    elif overall >= 50: grade = "D"
-    else: grade = "F"
+    if overall >= 90:
+        grade = "S"
+    elif overall >= 80:
+        grade = "A"
+    elif overall >= 70:
+        grade = "B"
+    elif overall >= 60:
+        grade = "C"
+    elif overall >= 50:
+        grade = "D"
+    else:
+        grade = "F"
 
     suggestions = []
     for name, data in sorted(dimensions.items(), key=lambda x: x[1]["score"]):
         if data["score"] < 70:
-            suggestions.append({"dimension": name, "score": data["score"],
-                                "priority": "high" if data["score"] < 50 else "medium"})
+            suggestions.append(
+                {
+                    "dimension": name,
+                    "score": data["score"],
+                    "priority": "high" if data["score"] < 50 else "medium",
+                }
+            )
 
     return {
         "overall_score": round(overall, 1),
@@ -1950,8 +2050,10 @@ def _color_temp_k(r, g, b):
 
 def _wcag_luminance(r, g, b):
     """WCAG 2.0 relative luminance."""
+
     def linearize(v):
         return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
     return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b)
 
 
@@ -2002,12 +2104,18 @@ def _score_color_theory(materials):
         h1 = _rgb_to_hue(colors[0]["color"])
         h2 = _rgb_to_hue(colors[1]["color"])
         diff = abs(h1 - h2)
-        if diff > 180: diff = 360 - diff
-        if diff < 15: sub_scores["harmony"] = 70
-        elif diff < 45: sub_scores["harmony"] = 85
-        elif 150 < diff < 210: sub_scores["harmony"] = 90
-        elif 100 < diff < 140: sub_scores["harmony"] = 80
-        else: sub_scores["harmony"] = 40
+        if diff > 180:
+            diff = 360 - diff
+        if diff < 15:
+            sub_scores["harmony"] = 70
+        elif diff < 45:
+            sub_scores["harmony"] = 85
+        elif 150 < diff < 210:
+            sub_scores["harmony"] = 90
+        elif 100 < diff < 140:
+            sub_scores["harmony"] = 80
+        else:
+            sub_scores["harmony"] = 40
     else:
         sub_scores["harmony"] = 60
 
@@ -2016,23 +2124,34 @@ def _score_color_theory(materials):
         lightest = max(lum_values)
         darkest = min(lum_values)
         ratio = (lightest + 0.05) / (darkest + 0.05) if darkest > 0 else 21
-        if ratio >= 7: sub_scores["contrast"] = 100
-        elif ratio >= 4.5: sub_scores["contrast"] = 85
-        elif ratio >= 3: sub_scores["contrast"] = 65
-        else: sub_scores["contrast"] = 40
+        if ratio >= 7:
+            sub_scores["contrast"] = 100
+        elif ratio >= 4.5:
+            sub_scores["contrast"] = 85
+        elif ratio >= 3:
+            sub_scores["contrast"] = 65
+        else:
+            sub_scores["contrast"] = 40
     else:
         sub_scores["contrast"] = 50
         ratio = 1.0
 
-    weights = {"60_30_10": 0.20, "temperature": 0.15, "saturation": 0.15,
-               "harmony": 0.25, "contrast": 0.25}
+    weights = {
+        "60_30_10": 0.20,
+        "temperature": 0.15,
+        "saturation": 0.15,
+        "harmony": 0.25,
+        "contrast": 0.25,
+    }
     overall = sum(sub_scores[k] * weights[k] for k in sub_scores)
 
     return {
         "score": round(overall, 1),
         "sub_scores": {k: round(v, 1) for k, v in sub_scores.items()},
-        "top_colors": [{"name": c["name"], "color": c["color"],
-                         "weight": c["object_count"]} for c in colors[:6]],
+        "top_colors": [
+            {"name": c["name"], "color": c["color"], "weight": c["object_count"]}
+            for c in colors[:6]
+        ],
     }
 
 
@@ -2054,11 +2173,14 @@ def _score_spatial_composition(objects, scene_bounds, PHI):
             for j in range(i + 1, min(len(sizes), i + 10)):
                 if sizes[j] > 0:
                     ratio = sizes[i] / sizes[j]
-                    if ratio < 1: ratio = 1 / ratio
+                    if ratio < 1:
+                        ratio = 1 / ratio
                     total_pairs += 1
                     if abs(ratio - PHI) < 0.15:
                         golden_matches += 1
-        sub_scores["golden_ratio"] = min(100, 50 + (golden_matches / max(total_pairs, 1)) * 100) if total_pairs > 0 else 50
+        sub_scores["golden_ratio"] = (
+            min(100, 50 + (golden_matches / max(total_pairs, 1)) * 100) if total_pairs > 0 else 50
+        )
     else:
         sub_scores["golden_ratio"] = 50
 
@@ -2087,10 +2209,14 @@ def _score_spatial_composition(objects, scene_bounds, PHI):
         for obj in objects:
             px, pz = obj["position"][0], obj["position"][2]
             w = obj["size"] * (1.5 if obj.get("is_focal") else 1.0)
-            if px <= mid_x and pz <= mid_z: quads[0] += w
-            elif px > mid_x and pz <= mid_z: quads[1] += w
-            elif px <= mid_x and pz > mid_z: quads[2] += w
-            else: quads[3] += w
+            if px <= mid_x and pz <= mid_z:
+                quads[0] += w
+            elif px > mid_x and pz <= mid_z:
+                quads[1] += w
+            elif px <= mid_x and pz > mid_z:
+                quads[2] += w
+            else:
+                quads[3] += w
         total_q = sum(quads)
         if total_q > 0:
             max_dev = max(abs(q / total_q - 0.25) for q in quads)
@@ -2141,9 +2267,12 @@ def _score_proportion_scale(objects):
         hero = [o for o in sorted_objs if o["size"] >= max_size * 0.6]
         secondary = [o for o in sorted_objs if max_size * 0.25 <= o["size"] < max_size * 0.6]
         hier_score = 70
-        if 1 <= len(hero) <= 3: hier_score += 15
-        elif len(hero) == 0: hier_score -= 20
-        if 2 <= len(secondary) <= 10: hier_score += 15
+        if 1 <= len(hero) <= 3:
+            hier_score += 15
+        elif len(hero) == 0:
+            hier_score -= 20
+        if 2 <= len(secondary) <= 10:
+            hier_score += 15
         sub_scores["hierarchy"] = min(100, hier_score)
     else:
         sub_scores["hierarchy"] = 50
@@ -2175,11 +2304,20 @@ def _score_lighting_quality(lights):
     sub_scores = {}
 
     if not lights:
-        return {"score": 0, "sub_scores": {
-            "layers": 0, "three_point": 0, "fill_ratio": 0,
-            "shadow_quality": 0, "temperature": 0, "coverage": 0,
-            "decay": 0, "intensity_dist": 0},
-            "detail": "no_lights"}
+        return {
+            "score": 0,
+            "sub_scores": {
+                "layers": 0,
+                "three_point": 0,
+                "fill_ratio": 0,
+                "shadow_quality": 0,
+                "temperature": 0,
+                "coverage": 0,
+                "decay": 0,
+                "intensity_dist": 0,
+            },
+            "detail": "no_lights",
+        }
 
     # --- Layer classification ---
     layers = {"key": [], "fill": [], "rim": [], "accent": [], "other": []}
@@ -2198,10 +2336,14 @@ def _score_lighting_quality(lights):
 
     # Layer completeness score
     layer_score = 20
-    if layers["key"]: layer_score += 30
-    if layers["fill"]: layer_score += 25
-    if layers["accent"]: layer_score += 15
-    if layers["rim"]: layer_score += 10
+    if layers["key"]:
+        layer_score += 30
+    if layers["fill"]:
+        layer_score += 25
+    if layers["accent"]:
+        layer_score += 15
+    if layers["rim"]:
+        layer_score += 10
     sub_scores["layers"] = min(100, layer_score)
 
     # --- Three-point lighting validation ---
@@ -2210,10 +2352,14 @@ def _score_lighting_quality(lights):
     has_fill = len(layers["fill"]) > 0
     has_rim_or_accent = len(layers["rim"]) > 0 or len(layers["accent"]) > 0
     three_point_score = 0
-    if has_key: three_point_score += 40
-    if has_fill: three_point_score += 30
-    if has_rim_or_accent: three_point_score += 20
-    if has_key and has_fill and has_rim_or_accent: three_point_score += 10
+    if has_key:
+        three_point_score += 40
+    if has_fill:
+        three_point_score += 30
+    if has_rim_or_accent:
+        three_point_score += 20
+    if has_key and has_fill and has_rim_or_accent:
+        three_point_score += 10
     sub_scores["three_point"] = min(100, three_point_score)
 
     # --- Fill ratio (key:fill intensity) ---
@@ -2287,8 +2433,12 @@ def _score_lighting_quality(lights):
 
         # Bonus for intentional contrast (key warm + fill cool or vice versa)
         if layers["key"] and layers["fill"]:
-            key_temps = [_color_temp_k(l["color"][0], l["color"][1], l["color"][2]) for l in layers["key"]]
-            fill_temps = [_color_temp_k(l["color"][0], l["color"][1], l["color"][2]) for l in layers["fill"]]
+            key_temps = [
+                _color_temp_k(l["color"][0], l["color"][1], l["color"][2]) for l in layers["key"]
+            ]
+            fill_temps = [
+                _color_temp_k(l["color"][0], l["color"][1], l["color"][2]) for l in layers["fill"]
+            ]
             kt_avg = sum(key_temps) / len(key_temps)
             ft_avg = sum(fill_temps) / len(fill_temps)
             if abs(kt_avg - ft_avg) > 1000:
@@ -2381,7 +2531,9 @@ def _score_lighting_quality(lights):
         "sub_scores": {k: round(v, 1) for k, v in sub_scores.items()},
         "layer_breakdown": {k: len(v) for k, v in layers.items()},
         "mood": mood if len(lights) >= 2 else "unknown",
-        "fill_ratio": round(key_intensity / max(fill_intensity, 0.001), 1) if fill_intensity > 0 else None,
+        "fill_ratio": round(key_intensity / max(fill_intensity, 0.001), 1)
+        if fill_intensity > 0
+        else None,
         "temp_consistency": temp_consistency if len(lights) >= 2 else "single_light",
     }
 
@@ -2425,14 +2577,19 @@ def _score_visual_flow(objects, zone_map):
     else:
         sub_scores["sight_lines"] = 50
 
-    path_objs = [o for o in objects if any(kw in o["name"].lower()
-                  for kw in ["path", "aisle", "corridor", "walkway", "route"])]
+    path_objs = [
+        o
+        for o in objects
+        if any(kw in o["name"].lower() for kw in ["path", "aisle", "corridor", "walkway", "route"])
+    ]
     if path_objs:
         circ_score = 70
         for p in path_objs:
             width = min(p["bbox_size"][0], p["bbox_size"][2])
-            if width < 90: circ_score -= 10
-            elif width < 120: circ_score -= 5
+            if width < 90:
+                circ_score -= 10
+            elif width < 120:
+                circ_score -= 5
         sub_scores["circulation"] = max(0, circ_score)
     else:
         sub_scores["circulation"] = 40
@@ -2458,16 +2615,20 @@ def _score_visual_flow(objects, zone_map):
                 positions = [o["position"] for o in group]
                 spacings = []
                 for i in range(len(positions) - 1):
-                    d = math.sqrt((positions[i+1][0] - positions[i][0]) ** 2 +
-                             (positions[i+1][2] - positions[i][2]) ** 2)
+                    d = math.sqrt(
+                        (positions[i + 1][0] - positions[i][0]) ** 2
+                        + (positions[i + 1][2] - positions[i][2]) ** 2
+                    )
                     spacings.append(d)
                 if len(spacings) >= 2:
                     avg = sum(spacings) / len(spacings)
                     if avg > 0:
                         var = sum((s - avg) ** 2 for s in spacings) / len(spacings)
                         cv = math.sqrt(var) / avg
-                        if cv < 0.15: rhythm_score += 20
-                        elif cv < 0.30: rhythm_score += 10
+                        if cv < 0.15:
+                            rhythm_score += 20
+                        elif cv < 0.30:
+                            rhythm_score += 10
         sub_scores["rhythm"] = min(100, rhythm_score)
     else:
         sub_scores["rhythm"] = 50
@@ -2484,6 +2645,7 @@ def _score_visual_flow(objects, zone_map):
 # ============================================================
 # ENHANCED AESTHETIC ANALYSIS (Research-based)
 # ============================================================
+
 
 def _analyze_silhouette_quality(objects):
     """Analyze silhouette quality of objects.
@@ -2511,7 +2673,7 @@ def _analyze_silhouette_quality(objects):
         # Volume compactness (how close to a cube)
         volume = bx * by * bz
         surface_area = 2 * (bx * by + by * bz + bx * bz)
-        compactness = (6 * volume) ** (2/3) / max(surface_area, 0.01)  # Sphericity approximation
+        compactness = (6 * volume) ** (2 / 3) / max(surface_area, 0.01)  # Sphericity approximation
 
         # Silhouette clarity score
         # Ideal: moderate aspect ratio (1.5-4), high compactness
@@ -2522,14 +2684,16 @@ def _analyze_silhouette_quality(objects):
         else:
             ratio_score = 30  # Very thin/wide, poor silhouette
 
-        clarity = (ratio_score * 0.6 + compactness * 100 * 0.4)
+        clarity = ratio_score * 0.6 + compactness * 100 * 0.4
 
-        results.append({
-            "name": obj.get("name", "?"),
-            "aspect_ratio": round(aspect_primary, 2),
-            "compactness": round(compactness, 3),
-            "clarity_score": round(clarity, 1),
-        })
+        results.append(
+            {
+                "name": obj.get("name", "?"),
+                "aspect_ratio": round(aspect_primary, 2),
+                "compactness": round(compactness, 3),
+                "clarity_score": round(clarity, 1),
+            }
+        )
 
     if not results:
         return {"avg_clarity": 50, "details": []}
@@ -2564,7 +2728,7 @@ def _analyze_curvature_distribution(objects):
     # Good design has varied but not chaotic size distribution
     avg_size = sum(sizes) / len(sizes)
     variance = sum((s - avg_size) ** 2 for s in sizes) / len(sizes)
-    cv = (variance ** 0.5) / max(avg_size, 0.01)
+    cv = (variance**0.5) / max(avg_size, 0.01)
 
     # CV of 0.3-0.8 is ideal (varied but organized)
     if 0.3 <= cv <= 0.8:
@@ -2599,7 +2763,9 @@ def _analyze_spatial_rhythm_enhanced(objects):
     groups = []
     current = [sorted_objs[0]]
     for i in range(1, len(sorted_objs)):
-        ratio = max(sorted_objs[i].get("bbox_size", [1])) / max(max(current[0].get("bbox_size", [1])), 0.01)
+        ratio = max(sorted_objs[i].get("bbox_size", [1])) / max(
+            max(current[0].get("bbox_size", [1])), 0.01
+        )
         if 0.7 < ratio < 1.4:
             current.append(sorted_objs[i])
         else:
@@ -2619,8 +2785,8 @@ def _analyze_spatial_rhythm_enhanced(objects):
         spacings = []
         for i in range(len(positions) - 1):
             d = math.sqrt(
-                (positions[i + 1][0] - positions[i][0]) ** 2 +
-                (positions[i + 1][2] - positions[i][2]) ** 2
+                (positions[i + 1][0] - positions[i][0]) ** 2
+                + (positions[i + 1][2] - positions[i][2]) ** 2
             )
             spacings.append(d)
         if len(spacings) >= 2:
@@ -2691,7 +2857,7 @@ def _analyze_style_consistency(objects, materials):
     if aspect_ratios:
         avg_ratio = sum(aspect_ratios) / len(aspect_ratios)
         ratio_variance = sum((r - avg_ratio) ** 2 for r in aspect_ratios) / len(aspect_ratios)
-        ratio_cv = (ratio_variance ** 0.5) / max(avg_ratio, 0.01)
+        ratio_cv = (ratio_variance**0.5) / max(avg_ratio, 0.01)
         # Low CV = consistent form language
         form_score = max(0, 100 - ratio_cv * 100)
     else:
@@ -2756,9 +2922,19 @@ def scene_review(checks=None):
         dict with score (0-100), issues, and detailed check results.
     """
     if checks is None:
-        checks = ["spatial", "overlaps", "zones", "aesthetics",
-                   "constraints", "orphans", "naming", "components",
-                   "conflicts", "lighting", "organization"]
+        checks = [
+            "spatial",
+            "overlaps",
+            "zones",
+            "aesthetics",
+            "constraints",
+            "orphans",
+            "naming",
+            "components",
+            "conflicts",
+            "lighting",
+            "organization",
+        ]
 
     result = {"checks": {}, "issues": [], "score": 0}
     total_score = 0
@@ -2773,30 +2949,55 @@ def scene_review(checks=None):
     if "spatial" in checks:
         max_score += 10
         pts = 0
-        sc = {"total": len(transforms), "meshes": mesh_count,
-              "lights": light_count, "cameras": cam_count}
+        sc = {
+            "total": len(transforms),
+            "meshes": mesh_count,
+            "lights": light_count,
+            "cameras": cam_count,
+        }
 
         if len(transforms) <= _MAYA_STANDARDS["max_objects_soft"]:
             pts += 4
         elif len(transforms) <= _MAYA_STANDARDS["max_objects_hard"]:
             pts += 2
-            result["issues"].append({"severity": "warning", "check": "spatial",
-                "msg": "High object count (%d). Consider instancing." % len(transforms)})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "spatial",
+                    "msg": "High object count (%d). Consider instancing." % len(transforms),
+                }
+            )
         else:
-            result["issues"].append({"severity": "error", "check": "spatial",
-                "msg": "Excessive objects (%d). Performance risk." % len(transforms)})
+            result["issues"].append(
+                {
+                    "severity": "error",
+                    "check": "spatial",
+                    "msg": "Excessive objects (%d). Performance risk." % len(transforms),
+                }
+            )
 
         if cam_count <= _MAYA_STANDARDS["max_cameras_keep"]:
             pts += 3
         else:
-            result["issues"].append({"severity": "warning", "check": "spatial",
-                "msg": "Excess cameras (%d). Clean test shots." % cam_count})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "spatial",
+                    "msg": "Excess cameras (%d). Clean test shots." % cam_count,
+                }
+            )
 
         if light_count >= _MAYA_STANDARDS["min_lights"]:
             pts += 3
         else:
-            result["issues"].append({"severity": "warning", "check": "spatial",
-                "msg": "Only %d lights. Need %d+." % (light_count, _MAYA_STANDARDS["min_lights"])})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "spatial",
+                    "msg": "Only %d lights. Need %d+."
+                    % (light_count, _MAYA_STANDARDS["min_lights"]),
+                }
+            )
 
         total_score += pts
         result["checks"]["spatial"] = sc
@@ -2813,20 +3014,20 @@ def scene_review(checks=None):
             for j in range(i + 1, min(len(sample), i + _SAMPLE_OVERLAP_WINDOW)):
                 pairs_checked += 1
                 try:
-                    m = measure(sample[i].split("|")[-1],
-                                sample[j].split("|")[-1], "bbox")
+                    m = measure(sample[i].split("|")[-1], sample[j].split("|")[-1], "bbox")
                     if m.get("bbox_overlap", False):
                         a = sample[i].split("|")[-1]
                         b = sample[j].split("|")[-1]
                         # DAG-path prefix: true ancestor relation only.
                         # The old substring test false-positived on
                         # siblings like |GEO_wall vs |GEO_wall2 (D-037).
-                        is_pc = (
-                            sample[j].startswith(sample[i] + "|")
-                            or sample[i].startswith(sample[j] + "|")
+                        is_pc = sample[j].startswith(sample[i] + "|") or sample[i].startswith(
+                            sample[j] + "|"
                         )
-                        is_grp = any(a.startswith(p) or b.startswith(p)
-                                     for p in ("GRP_", "OUT_", "SUN", "ext_"))
+                        is_grp = any(
+                            a.startswith(p) or b.startswith(p)
+                            for p in ("GRP_", "OUT_", "SUN", "ext_")
+                        )
                         if not is_pc and not is_grp:
                             overlap_pairs.append({"a": a, "b": b})
                 except Exception:
@@ -2834,12 +3035,22 @@ def scene_review(checks=None):
 
         if len(overlap_pairs) > 10:
             pts = 2
-            result["issues"].append({"severity": "error", "check": "overlaps",
-                "msg": "%d mesh overlaps. Fix intersections." % len(overlap_pairs)})
+            result["issues"].append(
+                {
+                    "severity": "error",
+                    "check": "overlaps",
+                    "msg": "%d mesh overlaps. Fix intersections." % len(overlap_pairs),
+                }
+            )
         elif len(overlap_pairs) > 3:
             pts = 7
-            result["issues"].append({"severity": "warning", "check": "overlaps",
-                "msg": "%d minor overlaps." % len(overlap_pairs)})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "overlaps",
+                    "msg": "%d minor overlaps." % len(overlap_pairs),
+                }
+            )
 
         total_score += pts
         result["checks"]["overlaps"] = {
@@ -2891,41 +3102,58 @@ def scene_review(checks=None):
                 cy = (bounds_a["min"][1] + bounds_a["max"][1]) / 2
                 cz = (bounds_a["min"][2] + bounds_a["max"][2]) / 2
 
-                inside_b = (bounds_b["min"][0] <= cx <= bounds_b["max"][0] and
-                            bounds_b["min"][1] <= cy <= bounds_b["max"][1] and
-                            bounds_b["min"][2] <= cz <= bounds_b["max"][2])
+                inside_b = (
+                    bounds_b["min"][0] <= cx <= bounds_b["max"][0]
+                    and bounds_b["min"][1] <= cy <= bounds_b["max"][1]
+                    and bounds_b["min"][2] <= cz <= bounds_b["max"][2]
+                )
 
                 cx2 = (bounds_b["min"][0] + bounds_b["max"][0]) / 2
                 cy2 = (bounds_b["min"][1] + bounds_b["max"][1]) / 2
                 cz2 = (bounds_b["min"][2] + bounds_b["max"][2]) / 2
 
-                inside_a = (bounds_a["min"][0] <= cx2 <= bounds_a["max"][0] and
-                            bounds_a["min"][1] <= cy2 <= bounds_a["max"][1] and
-                            bounds_a["min"][2] <= cz2 <= bounds_a["max"][2])
+                inside_a = (
+                    bounds_a["min"][0] <= cx2 <= bounds_a["max"][0]
+                    and bounds_a["min"][1] <= cy2 <= bounds_a["max"][1]
+                    and bounds_a["min"][2] <= cz2 <= bounds_a["max"][2]
+                )
 
                 if inside_b or inside_a:
                     # DAG-path prefix: true ancestor relation only (D-037).
-                    is_pc = (path_b.startswith(path_a + "|")
-                             or path_a.startswith(path_b + "|"))
-                    is_grp = any(name_a.startswith(p) or name_b.startswith(p)
-                                 for p in ("GRP_", "OUT_", "ALL"))
+                    is_pc = path_b.startswith(path_a + "|") or path_a.startswith(path_b + "|")
+                    is_grp = any(
+                        name_a.startswith(p) or name_b.startswith(p)
+                        for p in ("GRP_", "OUT_", "ALL")
+                    )
                     env_prefixes = ("SUN", "OUT_", "sky", "env")
                     is_env = name_a.startswith(env_prefixes) or name_b.startswith(env_prefixes)
                     if not is_pc and not is_grp and not is_env:
-                        conflicts.append({
-                            "type": "penetration",
-                            "object": name_a if inside_b else name_b,
-                            "container": name_b if inside_b else name_a,
-                        })
+                        conflicts.append(
+                            {
+                                "type": "penetration",
+                                "object": name_a if inside_b else name_b,
+                                "container": name_b if inside_b else name_a,
+                            }
+                        )
 
         if len(conflicts) > 5:
             pts = 2
-            result["issues"].append({"severity": "error", "check": "conflicts",
-                "msg": "%d spatial conflicts. Objects penetrating others." % len(conflicts)})
+            result["issues"].append(
+                {
+                    "severity": "error",
+                    "check": "conflicts",
+                    "msg": "%d spatial conflicts. Objects penetrating others." % len(conflicts),
+                }
+            )
         elif len(conflicts) > 0:
             pts = 7
-            result["issues"].append({"severity": "warning", "check": "conflicts",
-                "msg": "%d spatial conflicts detected." % len(conflicts)})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "conflicts",
+                    "msg": "%d spatial conflicts detected." % len(conflicts),
+                }
+            )
 
         total_score += pts
         result["checks"]["conflicts"] = {
@@ -2945,16 +3173,27 @@ def scene_review(checks=None):
         coverage = 1.0 - (unassigned / total) if total > 0 else 0
 
         pts = 0
-        if coverage >= 0.7: pts = 5
-        elif coverage >= 0.5: pts = 3
-        elif coverage >= 0.3: pts = 1
+        if coverage >= 0.7:
+            pts = 5
+        elif coverage >= 0.5:
+            pts = 3
+        elif coverage >= 0.3:
+            pts = 1
         else:
-            result["issues"].append({"severity": "warning", "check": "zones",
-                "msg": "Low coverage (%.0f%%). Add naming prefixes." % (coverage * 100)})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "zones",
+                    "msg": "Low coverage (%.0f%%). Add naming prefixes." % (coverage * 100),
+                }
+            )
 
         total_score += pts
-        result["checks"]["zones"] = {"count": len(zones), "unassigned": unassigned,
-                                      "coverage": round(coverage, 3)}
+        result["checks"]["zones"] = {
+            "count": len(zones),
+            "unassigned": unassigned,
+            "coverage": round(coverage, 3),
+        }
 
     # === NAMING CONVENTION (5 pts) ===
     if "naming" in checks:
@@ -2970,16 +3209,25 @@ def scene_review(checks=None):
         pts = 5
         if len(bad_names) > 10:
             pts = 1
-            result["issues"].append({"severity": "error", "check": "naming",
-                "msg": "%d objects with default names." % len(bad_names)})
+            result["issues"].append(
+                {
+                    "severity": "error",
+                    "check": "naming",
+                    "msg": "%d objects with default names." % len(bad_names),
+                }
+            )
         elif len(bad_names) > 3:
             pts = 3
-            result["issues"].append({"severity": "warning", "check": "naming",
-                "msg": "%d objects with default names." % len(bad_names)})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "naming",
+                    "msg": "%d objects with default names." % len(bad_names),
+                }
+            )
 
         total_score += pts
-        result["checks"]["naming"] = {"bad_count": len(bad_names),
-                                       "examples": bad_names[:5]}
+        result["checks"]["naming"] = {"bad_count": len(bad_names), "examples": bad_names[:5]}
 
     # === COMPONENTIZATION (10 pts) ===
     if "components" in checks:
@@ -3012,11 +3260,21 @@ def scene_review(checks=None):
             pts += 5
         elif ungrouped_meshes < grouped_meshes:
             pts += 2
-            result["issues"].append({"severity": "warning", "check": "components",
-                "msg": "%d meshes not under GRP_ groups." % ungrouped_meshes})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "components",
+                    "msg": "%d meshes not under GRP_ groups." % ungrouped_meshes,
+                }
+            )
         else:
-            result["issues"].append({"severity": "error", "check": "components",
-                "msg": "%d meshes ungrouped. Use GRP_ convention." % ungrouped_meshes})
+            result["issues"].append(
+                {
+                    "severity": "error",
+                    "check": "components",
+                    "msg": "%d meshes ungrouped. Use GRP_ convention." % ungrouped_meshes,
+                }
+            )
 
         groups = [t for t in transforms if t.split("|")[-1].startswith("GRP_")]
         if len(groups) >= 3:
@@ -3032,8 +3290,14 @@ def scene_review(checks=None):
         if max_depth <= _MAYA_STANDARDS["max_nesting_depth"]:
             pts += 2
         else:
-            result["issues"].append({"severity": "warning", "check": "components",
-                "msg": "Nesting depth %d exceeds %d." % (max_depth, _MAYA_STANDARDS["max_nesting_depth"])})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "components",
+                    "msg": "Nesting depth %d exceeds %d."
+                    % (max_depth, _MAYA_STANDARDS["max_nesting_depth"]),
+                }
+            )
 
         total_score += pts
         result["checks"]["components"] = {
@@ -3057,8 +3321,10 @@ def scene_review(checks=None):
             # Detect objects at root level that should be in groups
             # (transforms directly under | that are not GRP_, OUT_, SUN, etc.)
             if t.count("|") == 1:  # Root level
-                if not any(short.startswith(p) for p in
-                          ("GRP_", "OUT_", "SUN", "sky", "env", "CAM_", "LGT_")):
+                if not any(
+                    short.startswith(p)
+                    for p in ("GRP_", "OUT_", "SUN", "sky", "env", "CAM_", "LGT_")
+                ):
                     # Check if it's a mesh that should be grouped
                     try:
                         sel = om2.MSelectionList()
@@ -3074,11 +3340,21 @@ def scene_review(checks=None):
             total_score += 5
         elif len(orphans) <= 3:
             total_score += 2
-            result["issues"].append({"severity": "warning", "check": "orphans",
-                "msg": "%d orphan/root-level objects." % len(orphans)})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "orphans",
+                    "msg": "%d orphan/root-level objects." % len(orphans),
+                }
+            )
         else:
-            result["issues"].append({"severity": "error", "check": "orphans",
-                "msg": "%d orphan/root-level objects detected." % len(orphans)})
+            result["issues"].append(
+                {
+                    "severity": "error",
+                    "check": "orphans",
+                    "msg": "%d orphan/root-level objects detected." % len(orphans),
+                }
+            )
 
         result["checks"]["orphans"] = {"count": len(orphans), "examples": orphans[:5]}
 
@@ -3093,24 +3369,37 @@ def scene_review(checks=None):
             dims = aest.get("dimensions", {})
 
             # Overall score contribution (0-5 pts)
-            if overall >= 80: pts += 5
-            elif overall >= 60: pts += 3
-            elif overall >= 40: pts += 1
+            if overall >= 80:
+                pts += 5
+            elif overall >= 60:
+                pts += 3
+            elif overall >= 40:
+                pts += 1
 
             # Per-dimension contributions (0-2 pts each, 5 dims = 0-10 pts)
-            for dim_name in ["color_theory", "spatial_composition",
-                             "proportion_scale", "lighting_quality", "visual_flow"]:
+            for dim_name in [
+                "color_theory",
+                "spatial_composition",
+                "proportion_scale",
+                "lighting_quality",
+                "visual_flow",
+            ]:
                 dim_score = dims.get(dim_name, 0)
-                if dim_score >= 70: pts += 2
-                elif dim_score >= 50: pts += 1
+                if dim_score >= 70:
+                    pts += 2
+                elif dim_score >= 50:
+                    pts += 1
 
             # Report weak dimensions
             for dim_name, dim_score in dims.items():
                 if dim_score < 40:
-                    result["issues"].append({
-                        "severity": "warning", "check": "aesthetics",
-                        "msg": "Weak %s: %d/100. Needs improvement." % (dim_name, dim_score),
-                    })
+                    result["issues"].append(
+                        {
+                            "severity": "warning",
+                            "check": "aesthetics",
+                            "msg": "Weak %s: %d/100. Needs improvement." % (dim_name, dim_score),
+                        }
+                    )
 
             result["checks"]["aesthetics"] = {
                 "overall_score": overall,
@@ -3119,8 +3408,13 @@ def scene_review(checks=None):
                 "improvement_suggestions": aest.get("improvement_suggestions", []),
             }
         except Exception as e:
-            result["issues"].append({"severity": "warning", "check": "aesthetics",
-                "msg": "Aesthetic analysis failed: %s" % str(e)})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "aesthetics",
+                    "msg": "Aesthetic analysis failed: %s" % str(e),
+                }
+            )
         total_score += pts
 
     # === LIGHTING QUALITY (10 pts) ===
@@ -3130,26 +3424,55 @@ def scene_review(checks=None):
         try:
             light_shapes = cmds.ls(type="light") or []
             if not light_shapes:
-                result["issues"].append({"severity": "error", "check": "lighting",
-                    "msg": "No lights in scene. Add at least key + fill + accent."})
+                result["issues"].append(
+                    {
+                        "severity": "error",
+                        "check": "lighting",
+                        "msg": "No lights in scene. Add at least key + fill + accent.",
+                    }
+                )
             else:
                 # Gather light data for analysis
                 lights_data = []
                 for ls_name in light_shapes:
                     try:
-                        parent = cmds.listRelatives(ls_name, parent=True, fullPath=True) or [ls_name]
+                        parent = cmds.listRelatives(ls_name, parent=True, fullPath=True) or [
+                            ls_name
+                        ]
                         lt = parent[0].split("|")[-1]
                         ltype = cmds.nodeType(ls_name)
-                        color = cmds.getAttr("%s.color" % ls_name)[0] if cmds.objExists("%s.color" % ls_name) else [1, 1, 1]
-                        intensity = cmds.getAttr("%s.intensity" % ls_name) if cmds.objExists("%s.intensity" % ls_name) else 1.0
+                        color = (
+                            cmds.getAttr("%s.color" % ls_name)[0]
+                            if cmds.objExists("%s.color" % ls_name)
+                            else [1, 1, 1]
+                        )
+                        intensity = (
+                            cmds.getAttr("%s.intensity" % ls_name)
+                            if cmds.objExists("%s.intensity" % ls_name)
+                            else 1.0
+                        )
                         pos = cmds.xform(lt, q=True, ws=True, t=True) or [0, 0, 0]
-                        decay = cmds.getAttr("%s.decayRate" % ls_name) if cmds.objExists("%s.decayRate" % ls_name) else 0
-                        shadow = bool(cmds.getAttr("%s.useDepthMapShadow" % ls_name)) if cmds.objExists("%s.useDepthMapShadow" % ls_name) else False
-                        lights_data.append({
-                            "name": lt, "type": ltype, "color": list(color),
-                            "intensity": intensity, "position": list(pos),
-                            "decay": decay, "shadow": shadow,
-                        })
+                        decay = (
+                            cmds.getAttr("%s.decayRate" % ls_name)
+                            if cmds.objExists("%s.decayRate" % ls_name)
+                            else 0
+                        )
+                        shadow = (
+                            bool(cmds.getAttr("%s.useDepthMapShadow" % ls_name))
+                            if cmds.objExists("%s.useDepthMapShadow" % ls_name)
+                            else False
+                        )
+                        lights_data.append(
+                            {
+                                "name": lt,
+                                "type": ltype,
+                                "color": list(color),
+                                "intensity": intensity,
+                                "position": list(pos),
+                                "decay": decay,
+                                "shadow": shadow,
+                            }
+                        )
                     except Exception:
                         pass
 
@@ -3157,30 +3480,59 @@ def scene_review(checks=None):
                 lq = _score_lighting_quality(lights_data)
                 lq_score = lq.get("score", 0)
 
-                if lq_score >= 80: pts = 10
-                elif lq_score >= 60: pts = 7
-                elif lq_score >= 40: pts = 4
-                else: pts = 1
+                if lq_score >= 80:
+                    pts = 10
+                elif lq_score >= 60:
+                    pts = 7
+                elif lq_score >= 40:
+                    pts = 4
+                else:
+                    pts = 1
 
                 # Report specific issues
                 sub = lq.get("sub_scores", {})
                 if sub.get("three_point", 0) < 50:
-                    result["issues"].append({"severity": "warning", "check": "lighting",
-                        "msg": "Missing three-point lighting setup (key+fill+rim/accent)."})
+                    result["issues"].append(
+                        {
+                            "severity": "warning",
+                            "check": "lighting",
+                            "msg": "Missing three-point lighting setup (key+fill+rim/accent).",
+                        }
+                    )
                 if sub.get("fill_ratio", 0) < 50:
-                    result["issues"].append({"severity": "warning", "check": "lighting",
-                        "msg": "Poor fill ratio. Key:fill should be 2:1 to 4:1."})
+                    result["issues"].append(
+                        {
+                            "severity": "warning",
+                            "check": "lighting",
+                            "msg": "Poor fill ratio. Key:fill should be 2:1 to 4:1.",
+                        }
+                    )
                 if sub.get("decay", 0) < 50:
-                    result["issues"].append({"severity": "warning", "check": "lighting",
-                        "msg": "Lights using non-physical decay. Use quadratic decay."})
+                    result["issues"].append(
+                        {
+                            "severity": "warning",
+                            "check": "lighting",
+                            "msg": "Lights using non-physical decay. Use quadratic decay.",
+                        }
+                    )
                 if sub.get("shadow_quality", 0) < 50:
-                    result["issues"].append({"severity": "info", "check": "lighting",
-                        "msg": "Shadow coverage outside ideal range (30-80%%)."})
+                    result["issues"].append(
+                        {
+                            "severity": "info",
+                            "check": "lighting",
+                            "msg": "Shadow coverage outside ideal range (30-80%%).",
+                        }
+                    )
 
                 result["checks"]["lighting"] = lq
         except Exception as e:
-            result["issues"].append({"severity": "warning", "check": "lighting",
-                "msg": "Lighting analysis failed: %s" % str(e)})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "lighting",
+                    "msg": "Lighting analysis failed: %s" % str(e),
+                }
+            )
         total_score += pts
 
     # === SCENE ORGANIZATION (10 pts) ===
@@ -3199,11 +3551,13 @@ def scene_review(checks=None):
                 try:
                     children = cmds.listRelatives(t, children=True, type="transform") or []
                     if len(children) == 0:
-                        org_issues.append({
-                            "type": "empty_group",
-                            "object": short,
-                            "msg": "Empty group '%s'. Remove or populate." % short,
-                        })
+                        org_issues.append(
+                            {
+                                "type": "empty_group",
+                                "object": short,
+                                "msg": "Empty group '%s'. Remove or populate." % short,
+                            }
+                        )
                 except Exception:
                     pass
 
@@ -3212,17 +3566,31 @@ def scene_review(checks=None):
         for t in transforms:
             if t.count("|") == 1:
                 short = t.split("|")[-1]
-                if not any(short.startswith(p) for p in
-                          ("GRP_", "OUT_", "SUN", "sky", "env", "CAM_", "LGT_",
-                           "LOC_", "JNT_", "RIG_")):
+                if not any(
+                    short.startswith(p)
+                    for p in (
+                        "GRP_",
+                        "OUT_",
+                        "SUN",
+                        "sky",
+                        "env",
+                        "CAM_",
+                        "LGT_",
+                        "LOC_",
+                        "JNT_",
+                        "RIG_",
+                    )
+                ):
                     root_objects.append(short)
 
         if len(root_objects) > 5:
-            org_issues.append({
-                "type": "disorganized_root",
-                "count": len(root_objects),
-                "msg": "%d objects at root level without group prefix." % len(root_objects),
-            })
+            org_issues.append(
+                {
+                    "type": "disorganized_root",
+                    "count": len(root_objects),
+                    "msg": "%d objects at root level without group prefix." % len(root_objects),
+                }
+            )
 
         # Check 3: Scene hierarchy depth consistency
         depths = [t.count("|") for t in transforms]
@@ -3230,12 +3598,14 @@ def scene_review(checks=None):
             avg_depth = sum(depths) / len(depths)
             max_depth = max(depths)
             if max_depth > _MAYA_STANDARDS["max_nesting_depth"] + 2:
-                org_issues.append({
-                    "type": "excessive_depth",
-                    "max_depth": max_depth,
-                    "msg": "Scene hierarchy too deep (%d levels). Flatten to %d max." % (
-                        max_depth, _MAYA_STANDARDS["max_nesting_depth"]),
-                })
+                org_issues.append(
+                    {
+                        "type": "excessive_depth",
+                        "max_depth": max_depth,
+                        "msg": "Scene hierarchy too deep (%d levels). Flatten to %d max."
+                        % (max_depth, _MAYA_STANDARDS["max_nesting_depth"]),
+                    }
+                )
 
         # Check 4: Naming consistency (are objects using consistent prefixes?)
         prefix_counts = {}
@@ -3249,12 +3619,14 @@ def scene_review(checks=None):
         # Good: consistent prefixes. Bad: many single-use prefixes
         single_use = sum(1 for c in prefix_counts.values() if c == 1)
         if single_use > len(prefix_counts) * 0.5 and len(prefix_counts) > 5:
-            org_issues.append({
-                "type": "inconsistent_naming",
-                "single_use_prefixes": single_use,
-                "msg": "%d/%d naming prefixes used only once. Standardize naming." % (
-                    single_use, len(prefix_counts)),
-            })
+            org_issues.append(
+                {
+                    "type": "inconsistent_naming",
+                    "single_use_prefixes": single_use,
+                    "msg": "%d/%d naming prefixes used only once. Standardize naming."
+                    % (single_use, len(prefix_counts)),
+                }
+            )
 
         # Deduct points for issues
         for issue in org_issues:
@@ -3264,8 +3636,13 @@ def scene_review(checks=None):
                 pts -= 1
             elif issue["type"] == "inconsistent_naming":
                 pts -= 2
-            result["issues"].append({"severity": "warning", "check": "organization",
-                "msg": issue.get("msg", str(issue))})
+            result["issues"].append(
+                {
+                    "severity": "warning",
+                    "check": "organization",
+                    "msg": issue.get("msg", str(issue)),
+                }
+            )
 
         total_score += max(0, pts)
         result["checks"]["organization"] = {
@@ -3305,6 +3682,7 @@ def scene_review(checks=None):
 # ============================================================
 # SCENE PLANNING: Holistic Scene Organization & Layout
 # ============================================================
+
 
 def scene_plan(objective=None, auto_fix=False):
     """Holistic scene planning with organization validation and layout suggestions.
@@ -3389,11 +3767,17 @@ def scene_plan(objective=None, auto_fix=False):
     zone_score = result["zone_analysis"].get("balance_score", 0)
     result["overall_health"] = round((org_score * 0.5 + zone_score * 0.5), 1)
     result["grade"] = (
-        "S" if result["overall_health"] >= 90 else
-        "A" if result["overall_health"] >= 80 else
-        "B" if result["overall_health"] >= 70 else
-        "C" if result["overall_health"] >= 60 else
-        "D" if result["overall_health"] >= 50 else "F"
+        "S"
+        if result["overall_health"] >= 90
+        else "A"
+        if result["overall_health"] >= 80
+        else "B"
+        if result["overall_health"] >= 70
+        else "C"
+        if result["overall_health"] >= 60
+        else "D"
+        if result["overall_health"] >= 50
+        else "F"
     )
 
     return result
@@ -3420,9 +3804,21 @@ def _check_organization(transforms):
         # Root level check
         if depth == 1:
             stats["root_objects"] += 1
-            is_organized = any(short.startswith(p) for p in
-                             ("GRP_", "OUT_", "SUN", "sky", "env",
-                              "CAM_", "LGT_", "LOC_", "JNT_", "RIG_"))
+            is_organized = any(
+                short.startswith(p)
+                for p in (
+                    "GRP_",
+                    "OUT_",
+                    "SUN",
+                    "sky",
+                    "env",
+                    "CAM_",
+                    "LGT_",
+                    "LOC_",
+                    "JNT_",
+                    "RIG_",
+                )
+            )
             if not is_organized:
                 # Check if it's a mesh that should be grouped
                 try:
@@ -3432,23 +3828,28 @@ def _check_organization(transforms):
                     ntype = _classify_node(dag)
                     if ntype == "mesh":
                         stats["orphan_meshes"] += 1
-                        issues.append({
-                            "type": "orphan_mesh",
-                            "object": short,
-                            "action": "Move into appropriate GRP_ group",
-                        })
+                        issues.append(
+                            {
+                                "type": "orphan_mesh",
+                                "object": short,
+                                "action": "Move into appropriate GRP_ group",
+                            }
+                        )
                 except Exception:
                     pass
 
         # Default name check
         import re
+
         if re.match(r"^p[A-Z][a-z]+[0-9]*$", short) or re.match(r"^group[0-9]+$", short):
             stats["default_names"] += 1
-            issues.append({
-                "type": "default_name",
-                "object": short,
-                "action": "Rename with descriptive name following GRP_/GEO_/LGT_ convention",
-            })
+            issues.append(
+                {
+                    "type": "default_name",
+                    "object": short,
+                    "action": "Rename with descriptive name following GRP_/GEO_/LGT_ convention",
+                }
+            )
 
         # Empty group check
         if short.startswith("GRP_"):
@@ -3456,11 +3857,13 @@ def _check_organization(transforms):
                 children = cmds.listRelatives(t, children=True, type="transform") or []
                 if len(children) == 0:
                     stats["empty_groups"] += 1
-                    issues.append({
-                        "type": "empty_group",
-                        "object": short,
-                        "action": "Remove empty group or populate with content",
-                    })
+                    issues.append(
+                        {
+                            "type": "empty_group",
+                            "object": short,
+                            "action": "Remove empty group or populate with content",
+                        }
+                    )
             except Exception:
                 pass
 
@@ -3492,42 +3895,120 @@ def _check_organization(transforms):
 # Intelligent object categorization rules (from research: modular thinking)
 _GROUP_RULES = {
     "GRP_shell": [
-        "wall", "floor", "ceiling", "roof", "facade", "exterior", "interior",
-        "beam", "column", "pillar", "window", "glass", "storefront",
-        "arch", "arc", "vault", "dome", "skylight",
+        "wall",
+        "floor",
+        "ceiling",
+        "roof",
+        "facade",
+        "exterior",
+        "interior",
+        "beam",
+        "column",
+        "pillar",
+        "window",
+        "glass",
+        "storefront",
+        "arch",
+        "arc",
+        "vault",
+        "dome",
+        "skylight",
     ],
     "GRP_entrance": [
-        "door", "entrance", "gate", "shopfront", "vestibule", "lobby",
-        "decompression", "threshold", "entry",
+        "door",
+        "entrance",
+        "gate",
+        "shopfront",
+        "vestibule",
+        "lobby",
+        "decompression",
+        "threshold",
+        "entry",
     ],
     "GRP_display": [
-        "display", "shelf", "counter", "kiosk", "vitrine", "showcase",
-        "pedestal", "stand", "rack", "case", "cabinet", "table",
-        "vitrine", "exhibit", "showcase",
+        "display",
+        "shelf",
+        "counter",
+        "kiosk",
+        "vitrine",
+        "showcase",
+        "pedestal",
+        "stand",
+        "rack",
+        "case",
+        "cabinet",
+        "table",
+        "vitrine",
+        "exhibit",
+        "showcase",
     ],
     "GRP_ip_core": [
-        "kitty", "hello_kitty", "ip_", "character", "figure", "mascot",
-        "hero", "focal", "centerpiece", "sculpture", "statue",
+        "kitty",
+        "hello_kitty",
+        "ip_",
+        "character",
+        "figure",
+        "mascot",
+        "hero",
+        "focal",
+        "centerpiece",
+        "sculpture",
+        "statue",
     ],
     "GRP_furniture": [
-        "table", "chair", "bench", "sofa", "stool", "desk",
-        "ottoman", "lounge", "seat",
+        "table",
+        "chair",
+        "bench",
+        "sofa",
+        "stool",
+        "desk",
+        "ottoman",
+        "lounge",
+        "seat",
     ],
     "GRP_lighting": [
-        "light", "spot", "lamp", "chandelier", "sconce", "led",
-        "neon", "illuminat", "glow",
+        "light",
+        "spot",
+        "lamp",
+        "chandelier",
+        "sconce",
+        "led",
+        "neon",
+        "illuminat",
+        "glow",
     ],
     "GRP_path": [
-        "path", "aisle", "corridor", "walkway", "route", "passage",
-        "circulation", "walk",
+        "path",
+        "aisle",
+        "corridor",
+        "walkway",
+        "route",
+        "passage",
+        "circulation",
+        "walk",
     ],
     "GRP_decor": [
-        "sign", "banner", "poster", "graphic", "logo", "decoration",
-        "ornament", "plant", "flower", "vase", "art",
+        "sign",
+        "banner",
+        "poster",
+        "graphic",
+        "logo",
+        "decoration",
+        "ornament",
+        "plant",
+        "flower",
+        "vase",
+        "art",
     ],
     "GRP_service": [
-        "checkout", "register", "counter", "cashier", "storage",
-        "back_", "staff", "utility",
+        "checkout",
+        "register",
+        "counter",
+        "cashier",
+        "storage",
+        "back_",
+        "staff",
+        "utility",
     ],
 }
 
@@ -3569,25 +4050,31 @@ def _auto_fix_organization(issues, transforms):
 
     for issue in issues:
         if issue["type"] == "default_name":
-            log.append({
-                "action": "suggest_rename",
-                "object": issue["object"],
-                "msg": "Manual rename needed: %s -> descriptive name" % issue["object"],
-            })
+            log.append(
+                {
+                    "action": "suggest_rename",
+                    "object": issue["object"],
+                    "msg": "Manual rename needed: %s -> descriptive name" % issue["object"],
+                }
+            )
         elif issue["type"] == "empty_group":
             try:
                 cmds.delete(issue["object"])
-                log.append({
-                    "action": "deleted",
-                    "object": issue["object"],
-                    "msg": "Removed empty group",
-                })
+                log.append(
+                    {
+                        "action": "deleted",
+                        "object": issue["object"],
+                        "msg": "Removed empty group",
+                    }
+                )
             except Exception:
-                log.append({
-                    "action": "failed",
-                    "object": issue["object"],
-                    "msg": "Could not delete (may have hidden children)",
-                })
+                log.append(
+                    {
+                        "action": "failed",
+                        "object": issue["object"],
+                        "msg": "Could not delete (may have hidden children)",
+                    }
+                )
         elif issue["type"] == "orphan_mesh":
             target_group = _categorize_object(issue["object"])
 
@@ -3596,31 +4083,37 @@ def _auto_fix_organization(issues, transforms):
                 try:
                     cmds.group(empty=True, name=target_group)
                     created_groups.add(target_group)
-                    log.append({
-                        "action": "created_group",
-                        "object": target_group,
-                        "msg": "Created group for %s objects" % target_group,
-                    })
+                    log.append(
+                        {
+                            "action": "created_group",
+                            "object": target_group,
+                            "msg": "Created group for %s objects" % target_group,
+                        }
+                    )
                 except Exception:
                     pass
 
             try:
                 cmds.parent(issue["object"], target_group)
-                log.append({
-                    "action": "reparented",
-                    "object": issue["object"],
-                    "target": target_group,
-                    "msg": "Moved %s into %s" % (issue["object"], target_group),
-                })
+                log.append(
+                    {
+                        "action": "reparented",
+                        "object": issue["object"],
+                        "target": target_group,
+                        "msg": "Moved %s into %s" % (issue["object"], target_group),
+                    }
+                )
             except Exception:
-                log.append({
-                    "action": "failed",
-                    "object": issue["object"],
-                    "msg": "Could not reparent %s (may be referenced or locked)" % issue["object"],
-                })
+                log.append(
+                    {
+                        "action": "failed",
+                        "object": issue["object"],
+                        "msg": "Could not reparent %s (may be referenced or locked)"
+                        % issue["object"],
+                    }
+                )
 
     return log
-
 
 
 def _analyze_group_layout(transforms):
@@ -3693,30 +4186,34 @@ def _analyze_group_layout(transforms):
     for g in group_list:
         cx, cy, cz = g["center"]
         if abs(cx) < 1 and abs(cz) < 1 and g["max_size"] > 50:
-            suggestions.append({
-                "type": "positioned_at_origin",
-                "group": g["name"],
-                "msg": "Group '%s' is at world center. Consider intentional placement." % g["name"],
-            })
+            suggestions.append(
+                {
+                    "type": "positioned_at_origin",
+                    "group": g["name"],
+                    "msg": "Group '%s' is at world center. Consider intentional placement."
+                    % g["name"],
+                }
+            )
 
     # Check for overlapping groups
     for i in range(len(group_list)):
         for j in range(i + 1, len(group_list)):
             g1, g2 = group_list[i], group_list[j]
             dist = math.sqrt(
-                (g1["center"][0] - g2["center"][0]) ** 2 +
-                (g1["center"][2] - g2["center"][2]) ** 2
+                (g1["center"][0] - g2["center"][0]) ** 2 + (g1["center"][2] - g2["center"][2]) ** 2
             )
             min_gap = (g1["max_size"] + g2["max_size"]) * 0.2
             if dist < min_gap and g1["max_size"] > 10 and g2["max_size"] > 10:
-                suggestions.append({
-                    "type": "groups_too_close",
-                    "groups": [g1["name"], g2["name"]],
-                    "gap": round(dist, 1),
-                    "recommended": round(min_gap, 1),
-                    "msg": "Groups '%s' and '%s' are too close (%.0fcm gap, recommend %.0fcm)." % (
-                        g1["name"], g2["name"], dist, min_gap),
-                })
+                suggestions.append(
+                    {
+                        "type": "groups_too_close",
+                        "groups": [g1["name"], g2["name"]],
+                        "gap": round(dist, 1),
+                        "recommended": round(min_gap, 1),
+                        "msg": "Groups '%s' and '%s' are too close (%.0fcm gap, recommend %.0fcm)."
+                        % (g1["name"], g2["name"], dist, min_gap),
+                    }
+                )
 
     # Check zone compliance
     zone_compliance = {}
@@ -3802,41 +4299,51 @@ def _parse_objective(objective):
 
     # Build structured steps
     if "organize" in detected_actions or not detected_actions:
-        steps.append({
-            "action": "organize_scene",
-            "description": "Move all orphan objects into appropriate GRP_ groups",
-            "priority": "high",
-        })
+        steps.append(
+            {
+                "action": "organize_scene",
+                "description": "Move all orphan objects into appropriate GRP_ groups",
+                "priority": "high",
+            }
+        )
 
     if detected_zones:
         for zone in detected_zones:
-            steps.append({
-                "action": "setup_zone",
-                "zone": zone,
-                "description": "Set up %s zone with proper grouping and layout" % zone,
-                "priority": "high",
-            })
+            steps.append(
+                {
+                    "action": "setup_zone",
+                    "zone": zone,
+                    "description": "Set up %s zone with proper grouping and layout" % zone,
+                    "priority": "high",
+                }
+            )
 
     if "plan" in detected_actions:
-        steps.append({
-            "action": "full_layout_plan",
-            "description": "Generate complete layout plan with zone analysis and aesthetics",
-            "priority": "high",
-        })
+        steps.append(
+            {
+                "action": "full_layout_plan",
+                "description": "Generate complete layout plan with zone analysis and aesthetics",
+                "priority": "high",
+            }
+        )
 
     if "review" in detected_actions:
-        steps.append({
-            "action": "full_review",
-            "description": "Run comprehensive scene review (11 dimensions)",
-            "priority": "medium",
-        })
+        steps.append(
+            {
+                "action": "full_review",
+                "description": "Run comprehensive scene review (11 dimensions)",
+                "priority": "medium",
+            }
+        )
 
     if not steps:
-        steps.append({
-            "action": "general_optimization",
-            "description": "Optimize scene: " + objective[:100],
-            "priority": "medium",
-        })
+        steps.append(
+            {
+                "action": "general_optimization",
+                "description": "Optimize scene: " + objective[:100],
+                "priority": "medium",
+            }
+        )
 
     return steps
 
@@ -3865,7 +4372,7 @@ def _analyze_zone_balance(zone_data):
         avg = sum(values) / len(values)
         if avg > 0:
             variance = sum((v - avg) ** 2 for v in values) / len(values)
-            cv = (variance ** 0.5) / avg  # Coefficient of variation
+            cv = (variance**0.5) / avg  # Coefficient of variation
             balance = max(0, 1 - cv)
         else:
             balance = 0
@@ -3895,14 +4402,16 @@ def _suggest_layout(transforms, zone_data):
             wm = dag.inclusiveMatrix()
             wb = _world_bbox(dag)
             pos = [wm[12], wm[13], wm[14]]
-            size = max(abs(wb.max[0] - wb.min[0]),
-                      abs(wb.max[1] - wb.min[1]),
-                      abs(wb.max[2] - wb.min[2]))
-            objects.append({
-                "name": fn.name(),
-                "position": pos,
-                "size": size,
-            })
+            size = max(
+                abs(wb.max[0] - wb.min[0]), abs(wb.max[1] - wb.min[1]), abs(wb.max[2] - wb.min[2])
+            )
+            objects.append(
+                {
+                    "name": fn.name(),
+                    "position": pos,
+                    "size": size,
+                }
+            )
         except Exception:
             pass
 
@@ -3913,33 +4422,37 @@ def _suggest_layout(transforms, zone_data):
     for i in range(len(objects)):
         for j in range(i + 1, min(len(objects), i + _SAMPLE_LAYOUT_WINDOW)):
             dist = math.sqrt(
-                (objects[i]["position"][0] - objects[j]["position"][0]) ** 2 +
-                (objects[i]["position"][2] - objects[j]["position"][2]) ** 2
+                (objects[i]["position"][0] - objects[j]["position"][0]) ** 2
+                + (objects[i]["position"][2] - objects[j]["position"][2]) ** 2
             )
             min_gap = (objects[i]["size"] + objects[j]["size"]) * 0.3
             if dist < min_gap:
-                suggestions.append({
-                    "type": "spacing",
-                    "objects": [objects[i]["name"], objects[j]["name"]],
-                    "current_gap": round(dist, 1),
-                    "recommended_gap": round(min_gap, 1),
-                    "msg": "Objects too close. Consider increasing gap to %.0fcm." % min_gap,
-                })
+                suggestions.append(
+                    {
+                        "type": "spacing",
+                        "objects": [objects[i]["name"], objects[j]["name"]],
+                        "current_gap": round(dist, 1),
+                        "recommended_gap": round(min_gap, 1),
+                        "msg": "Objects too close. Consider increasing gap to %.0fcm." % min_gap,
+                    }
+                )
 
     # Check for objects at exact same position (likely copy error)
     for i in range(len(objects)):
         for j in range(i + 1, min(len(objects), i + 10)):
             dist = math.sqrt(
-                (objects[i]["position"][0] - objects[j]["position"][0]) ** 2 +
-                (objects[i]["position"][1] - objects[j]["position"][1]) ** 2 +
-                (objects[i]["position"][2] - objects[j]["position"][2]) ** 2
+                (objects[i]["position"][0] - objects[j]["position"][0]) ** 2
+                + (objects[i]["position"][1] - objects[j]["position"][1]) ** 2
+                + (objects[i]["position"][2] - objects[j]["position"][2]) ** 2
             )
             if dist < 0.1 and objects[i]["size"] > 1:
-                suggestions.append({
-                    "type": "overlap",
-                    "objects": [objects[i]["name"], objects[j]["name"]],
-                    "msg": "Objects at identical positions. Possible duplicate.",
-                })
+                suggestions.append(
+                    {
+                        "type": "overlap",
+                        "objects": [objects[i]["name"], objects[j]["name"]],
+                        "msg": "Objects at identical positions. Possible duplicate.",
+                    }
+                )
 
     return suggestions[:10]
 
@@ -3987,17 +4500,19 @@ def _predict_conflicts(transforms):
             # If gaps are very small, it's a near-miss
             if gap_x < 10 and gap_y < 10 and gap_z < 10:
                 # DAG-path prefix: true ancestor relation only (D-037).
-                is_pc = (path_b.startswith(path_a + "|")
-                         or path_a.startswith(path_b + "|"))
-                is_grp = any(name_a.startswith(p) or name_b.startswith(p)
-                            for p in ("GRP_", "OUT_", "ALL"))
+                is_pc = path_b.startswith(path_a + "|") or path_a.startswith(path_b + "|")
+                is_grp = any(
+                    name_a.startswith(p) or name_b.startswith(p) for p in ("GRP_", "OUT_", "ALL")
+                )
                 if not is_pc and not is_grp:
-                    conflicts.append({
-                        "type": "near_miss",
-                        "objects": [name_a, name_b],
-                        "gaps": [round(gap_x, 1), round(gap_y, 1), round(gap_z, 1)],
-                        "msg": "Objects nearly touching. Verify intentional placement.",
-                    })
+                    conflicts.append(
+                        {
+                            "type": "near_miss",
+                            "objects": [name_a, name_b],
+                            "gaps": [round(gap_x, 1), round(gap_y, 1), round(gap_z, 1)],
+                            "msg": "Objects nearly touching. Verify intentional placement.",
+                        }
+                    )
 
     return conflicts[:5]
 
@@ -4011,58 +4526,68 @@ def _generate_action_plan(plan_data, objective):
     org = plan_data.get("organization_status", {})
     if org.get("health_score", 100) < 80:
         for issue in org.get("issues", [])[:3]:
-            actions.append({
-                "step": step,
-                "action": "fix_organization",
-                "target": issue.get("object", ""),
-                "description": issue.get("action", ""),
-                "priority": "high",
-            })
+            actions.append(
+                {
+                    "step": step,
+                    "action": "fix_organization",
+                    "target": issue.get("object", ""),
+                    "description": issue.get("action", ""),
+                    "priority": "high",
+                }
+            )
             step += 1
 
     # Address conflicts
     for conflict in plan_data.get("conflict_prevention", [])[:2]:
-        actions.append({
-            "step": step,
-            "action": "resolve_conflict",
-            "target": ", ".join(conflict.get("objects", [])),
-            "description": conflict.get("msg", ""),
-            "priority": "medium",
-        })
+        actions.append(
+            {
+                "step": step,
+                "action": "resolve_conflict",
+                "target": ", ".join(conflict.get("objects", [])),
+                "description": conflict.get("msg", ""),
+                "priority": "medium",
+            }
+        )
         step += 1
 
     # Address layout issues
     for suggestion in plan_data.get("layout_suggestions", [])[:3]:
-        actions.append({
-            "step": step,
-            "action": "adjust_layout",
-            "target": ", ".join(suggestion.get("objects", [])),
-            "description": suggestion.get("msg", ""),
-            "priority": "medium",
-        })
+        actions.append(
+            {
+                "step": step,
+                "action": "adjust_layout",
+                "target": ", ".join(suggestion.get("objects", [])),
+                "description": suggestion.get("msg", ""),
+                "priority": "medium",
+            }
+        )
         step += 1
 
     # Zone improvements
     zone = plan_data.get("zone_analysis", {})
     if zone.get("coverage", 1) < 0.7:
-        actions.append({
-            "step": step,
-            "action": "improve_zone_coverage",
-            "target": "unassigned objects",
-            "description": "Add naming prefixes to %d unassigned objects" % zone.get("unassigned", 0),
-            "priority": "low",
-        })
+        actions.append(
+            {
+                "step": step,
+                "action": "improve_zone_coverage",
+                "target": "unassigned objects",
+                "description": "Add naming prefixes to %d unassigned objects"
+                % zone.get("unassigned", 0),
+                "priority": "low",
+            }
+        )
         step += 1
 
     # If objective provided, add objective-specific steps
     if objective:
-        actions.append({
-            "step": step,
-            "action": "execute_objective",
-            "target": "user_goal",
-            "description": "Execute: %s" % objective,
-            "priority": "high",
-        })
+        actions.append(
+            {
+                "step": step,
+                "action": "execute_objective",
+                "target": "user_goal",
+                "description": "Execute: %s" % objective,
+                "priority": "high",
+            }
+        )
 
     return actions
-

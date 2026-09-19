@@ -114,7 +114,6 @@ def raise_for_error(response: CommandResponse) -> None:
     raise MayaExecutionError(sanitize_error_message(detail))
 
 
-
 @dataclass
 class BaseMayaClient(ABC):
     """Abstract base class for Maya clients."""
@@ -177,9 +176,7 @@ class BaseMayaClient(ABC):
             )
             logger.info(f"Connected to Maya at {self.host}:{self.port}")
         except asyncio.TimeoutError as e:
-            raise MayaTimeoutError(
-                f"Timeout connecting to Maya at {self.host}:{self.port}"
-            ) from e
+            raise MayaTimeoutError(f"Timeout connecting to Maya at {self.host}:{self.port}") from e
         except OSError as e:
             raise MayaConnectionError(
                 f"Failed to connect to Maya at {self.host}:{self.port}: {e}"
@@ -662,9 +659,7 @@ class MayaClient(BaseMayaClient):
                     # Liveness gate (D-013): in headless Maya a Qt listener can
                     # accept TCP while readyRead never fires - a zombie channel.
                     # Probe the framed protocol before registering the session.
-                    alive = await asyncio.wait_for(
-                        qt_client.ping(), timeout=QT_PROBE_TIMEOUT
-                    )
+                    alive = await asyncio.wait_for(qt_client.ping(), timeout=QT_PROBE_TIMEOUT)
                     if not alive:
                         raise MayaUnavailableError(
                             "Qt server accepted the connection but does not respond"
@@ -698,9 +693,7 @@ class MayaClient(BaseMayaClient):
                     buffer_size=self.buffer_size,
                 )
         else:
-            raise InputValidationError(
-                f"Unknown client_type {client_type!r}"
-            )
+            raise InputValidationError(f"Unknown client_type {client_type!r}")
         # Connect to the new dedicated port (the Qt branch already probed it)
         if not new_client.is_connected:
             await new_client.connect()

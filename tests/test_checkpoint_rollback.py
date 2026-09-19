@@ -39,6 +39,7 @@ def untitled_scene(maya_env, tmp_path):
 # checkpoint = real exportAll snapshot of MEMORY state (P0-3)
 # ------------------------------------------------------------
 
+
 class TestCheckpointSnapshot:
     def test_snapshot_captures_memory_not_stale_disk(self, saved_scene, tmp_path):
         # Disk file is stale (does not contain GEO_new); memory does.
@@ -139,8 +140,11 @@ class TestCheckpointSnapshot:
     def test_file_ops_use_prompt_false(self, saved_scene):
         saved_scene.scene.file_calls.clear()
         saved_scene.module.save_checkpoint("x")
-        mutating = [c for c in saved_scene.scene.file_calls
-                    if not c["kwargs"].get("query") and not c["kwargs"].get("q")]
+        mutating = [
+            c
+            for c in saved_scene.scene.file_calls
+            if not c["kwargs"].get("query") and not c["kwargs"].get("q")
+        ]
         assert mutating, "no file calls recorded"
         for c in mutating:
             assert c["kwargs"].get("prompt") is False, c
@@ -157,6 +161,7 @@ class TestCheckpointSnapshot:
 # ------------------------------------------------------------
 # rollback = S2 (open + rebind), auto_before_rollback invariant
 # ------------------------------------------------------------
+
 
 class TestRollback:
     def test_rollback_restores_snapshot_state(self, saved_scene, tmp_path):
@@ -253,18 +258,14 @@ class TestRollback:
             return real_file(*args, **kwargs)
 
         monkeypatch.setattr(saved_scene.cmds, "file", boom)
-        rb = saved_scene.module.rollback_to_checkpoint(
-            "cp_v1.ma", discard_current_state=True
-        )
+        rb = saved_scene.module.rollback_to_checkpoint("cp_v1.ma", discard_current_state=True)
         assert rb["success"] is True, rb
         assert rb["safety_snapshot"] == "skipped_by_user"
 
     def test_discard_flag_warns_when_auto_ok(self, saved_scene):
         saved_scene.scene.add_mesh("GEO_a")
         saved_scene.module.save_checkpoint("v1")
-        rb = saved_scene.module.rollback_to_checkpoint(
-            "cp_v1.ma", discard_current_state=True
-        )
+        rb = saved_scene.module.rollback_to_checkpoint("cp_v1.ma", discard_current_state=True)
         assert rb["success"] is True
         assert "warning" in rb, "discard flag + successful auto snapshot must warn"
 
@@ -290,13 +291,9 @@ class TestRollback:
         rb = untitled_scene.module.rollback_to_checkpoint("cp_adhoc_rescue.ma")
         assert rb["success"] is True, rb
         assert rb["safety_snapshot"] != "skipped_by_user"
-        assert os.path.dirname(rb["safety_snapshot"]) == str(
-            tmp_path / "ws" / "checkpoints"
-        )
+        assert os.path.dirname(rb["safety_snapshot"]) == str(tmp_path / "ws" / "checkpoints")
         assert os.path.exists(rb["safety_snapshot"])
-        assert os.path.basename(rb["safety_snapshot"]).startswith(
-            "cp_auto_before_rollback_"
-        )
+        assert os.path.basename(rb["safety_snapshot"]).startswith("cp_auto_before_rollback_")
 
     def test_rollback_open_failure_reports_state(self, saved_scene, monkeypatch):
         saved_scene.scene.add_mesh("GEO_a")
@@ -322,8 +319,11 @@ class TestRollback:
         saved_scene.module.save_checkpoint("v1")
         saved_scene.scene.file_calls.clear()
         saved_scene.module.rollback_to_checkpoint("cp_v1.ma")
-        mutating = [c for c in saved_scene.scene.file_calls
-                    if not c["kwargs"].get("query") and not c["kwargs"].get("q")]
+        mutating = [
+            c
+            for c in saved_scene.scene.file_calls
+            if not c["kwargs"].get("query") and not c["kwargs"].get("q")
+        ]
         assert mutating
         for c in mutating:
             assert c["kwargs"].get("prompt") is False, c
@@ -343,6 +343,7 @@ class TestRollback:
 # ------------------------------------------------------------
 # list_checkpoints
 # ------------------------------------------------------------
+
 
 class TestListCheckpoints:
     def test_list_counts_and_marks_adhoc(self, saved_scene, tmp_path):
@@ -364,9 +365,11 @@ class TestListCheckpoints:
         res = saved_scene.module.list_checkpoints()
         assert res == {"checkpoints": [], "count": 0}
 
+
 # ------------------------------------------------------------
 # D-019 error contract: {error: {code, message, suggestion?}}
 # ------------------------------------------------------------
+
 
 class TestDomainErrorShape:
     """Every Maya-domain error return carries the D-019 structured object."""
@@ -381,9 +384,7 @@ class TestDomainErrorShape:
         return err
 
     def test_save_errors(self, saved_scene):
-        for res in (
-            saved_scene.module.save_checkpoint("a/b"),
-        ):
+        for res in (saved_scene.module.save_checkpoint("a/b"),):
             self._check(res)
         saved_scene.module.save_checkpoint("x")
         self._check(saved_scene.module.save_checkpoint("x"))
@@ -399,8 +400,5 @@ class TestDomainErrorShape:
         self._check(saved_scene.module.measure("no_a", "no_b"))
 
     def test_camera_shot_errors(self, saved_scene):
-        self._check(
-            saved_scene.module.create_camera_shot("x", shot_type="nope")
-        )
+        self._check(saved_scene.module.create_camera_shot("x", shot_type="nope"))
         self._check(saved_scene.module.create_camera_shot("missing_target"))
-

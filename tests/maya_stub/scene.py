@@ -11,17 +11,32 @@ from .math3d import MBoundingBox, MMatrix, MPoint, euler_from_matrix, trs_matrix
 
 
 LIGHT_TYPES = {
-    "spotLight", "pointLight", "directionalLight",
-    "areaLight", "volumeLight", "ambientLight",
+    "spotLight",
+    "pointLight",
+    "directionalLight",
+    "areaLight",
+    "volumeLight",
+    "ambientLight",
 }
 SHAPE_TYPES = LIGHT_TYPES | {"mesh", "camera", "locator", "nurbsCurve", "joint"}
 
 
 class Node:
     __slots__ = (
-        "scene", "name", "type", "parent", "children",
-        "t", "r", "s", "bbox", "attrs", "intermediate",
-        "num_vertices", "num_polygons", "keyframes",
+        "scene",
+        "name",
+        "type",
+        "parent",
+        "children",
+        "t",
+        "r",
+        "s",
+        "bbox",
+        "attrs",
+        "intermediate",
+        "num_vertices",
+        "num_polygons",
+        "keyframes",
     )
 
     def __init__(self, scene, name, ntype, parent=None):
@@ -55,9 +70,9 @@ class Scene:
     """A fake Maya scene: node table + DAG hierarchy + recorded calls."""
 
     def __init__(self):
-        self.nodes = {}          # short name -> [Node] (dup short names possible)
+        self.nodes = {}  # short name -> [Node] (dup short names possible)
         self.roots = []
-        self.scene_path = ""     # cmds.file(q, sceneName)
+        self.scene_path = ""  # cmds.file(q, sceneName)
         self.linear_unit = "cm"
         self.angular_unit = "deg"
         self.time_unit = "film"
@@ -65,28 +80,28 @@ class Scene:
         self.current_time = 1
         self.playback_range = [1, 120]
         self.selection = []
-        self.constraints = []    # recorded aimConstraint calls
-        self.connections = {}    # "node.attr" -> [target node names]
-        self.set_members = {}    # shadingEngine -> [member names]
-        self.keyed = []          # (node, attribute) setKeyframe calls
-        self.warnings = []       # cmds.warning calls
-        self.file_calls = []     # recorded cmds.file invocations
+        self.constraints = []  # recorded aimConstraint calls
+        self.connections = {}  # "node.attr" -> [target node names]
+        self.set_members = {}  # shadingEngine -> [member names]
+        self.keyed = []  # (node, attribute) setKeyframe calls
+        self.warnings = []  # cmds.warning calls
+        self.file_calls = []  # recorded cmds.file invocations
         self.deleted = []
-        self.workspace_dir = ""   # cmds.workspace(q, rootDirectory)
+        self.workspace_dir = ""  # cmds.workspace(q, rootDirectory)
 
         # ---- GUI surface (D-027 stateful-fake; visual tools contract) ----
-        self.gui = True             # modelPanel-based session (batch=False GUI)
-        self.batch = False          # cmds.about(batch=True)
-        self.panels = {}            # name -> {type,camera,activeView,withFocus,width,height}
-        self.focus_panel = None     # getPanel(withFocus=True)
+        self.gui = True  # modelPanel-based session (batch=False GUI)
+        self.batch = False  # cmds.about(batch=True)
+        self.panels = {}  # name -> {type,camera,activeView,withFocus,width,height}
+        self.focus_panel = None  # getPanel(withFocus=True)
         self.viewport_size = (1280, 720)  # M3dView.portWidth/portHeight
-        self.look_thru_calls = []   # (panel, camera) lookThru invocations
-        self.model_panel_calls = [] # (panel, camera) modelPanel camera edits
-        self.stub_strict = False    # D-039: True => unclassifiable args raise like real Maya
-        self.stub_notes = []        # anomalies recorded in warn (non-strict) mode
-        self.playblast_calls = []   # recorded playblast kwargs
+        self.look_thru_calls = []  # (panel, camera) lookThru invocations
+        self.model_panel_calls = []  # (panel, camera) modelPanel camera edits
+        self.stub_strict = False  # D-039: True => unclassifiable args raise like real Maya
+        self.stub_notes = []  # anomalies recorded in warn (non-strict) mode
+        self.playblast_calls = []  # recorded playblast kwargs
         self.playblast_empty = False  # headless quirk: silent zero-byte artifact
-        self.refresh_calls = 0      # cmds.refresh invocations
+        self.refresh_calls = 0  # cmds.refresh invocations
 
     def setup_gui(self):
         """Seed a stock GUI layout: four model panels + default cameras.
@@ -140,9 +155,18 @@ class Scene:
         node.attrs.update(attrs)
         return node
 
-    def add_mesh(self, name, bbox_min=(-50, -50, -50), bbox_max=(50, 50, 50),
-                 t=(0, 0, 0), r=(0, 0, 0), s=(1, 1, 1), parent=None,
-                 num_vertices=8, num_polygons=6):
+    def add_mesh(
+        self,
+        name,
+        bbox_min=(-50, -50, -50),
+        bbox_max=(50, 50, 50),
+        t=(0, 0, 0),
+        r=(0, 0, 0),
+        s=(1, 1, 1),
+        parent=None,
+        num_vertices=8,
+        num_polygons=6,
+    ):
         """Create transform + mesh shape child (Maya layout). Returns transform."""
         tr = self.add_transform(name, t=t, r=r, s=s, parent=parent)
         sh = self.add_shape(name + "Shape", "mesh", tr, bbox=(bbox_min, bbox_max))
@@ -155,19 +179,22 @@ class Scene:
         self.add_shape(name + "Shape", "camera", tr)
         return tr
 
-    def add_light(self, name, ltype="spotLight", t=(0, 0, 0), r=(0, 0, 0),
-                  parent=None, **attrs):
+    def add_light(self, name, ltype="spotLight", t=(0, 0, 0), r=(0, 0, 0), parent=None, **attrs):
         tr = self.add_transform(name, t=t, r=r, parent=parent)
         defaults = {
-            "color": (1.0, 1.0, 1.0), "intensity": 1.0,
-            "decayRate": 0, "useDepthMapShadow": 1,
+            "color": (1.0, 1.0, 1.0),
+            "intensity": 1.0,
+            "decayRate": 0,
+            "useDepthMapShadow": 1,
         }
         if ltype == "spotLight":
-            defaults.update({"coneAngle": 40.0, "penumbraAngle": 10.0,
-                             "emitDiffuse": 1, "emitSpecular": 1})
+            defaults.update(
+                {"coneAngle": 40.0, "penumbraAngle": 10.0, "emitDiffuse": 1, "emitSpecular": 1}
+            )
         if ltype == "areaLight":
-            defaults.update({"areaWidth": 10.0, "areaHeight": 10.0,
-                             "emitDiffuse": 1, "emitSpecular": 1})
+            defaults.update(
+                {"areaWidth": 10.0, "areaHeight": 10.0, "emitDiffuse": 1, "emitSpecular": 1}
+            )
         defaults.update(attrs)
         self.add_shape(name + "Shape", ltype, tr, **defaults)
         return tr
@@ -190,8 +217,7 @@ class Scene:
         for target in assign_to:
             node = self.resolve(target)
             shape = next((c for c in node.children if c.type in SHAPE_TYPES), node)
-            self.connections.setdefault(
-                shape.name + ".instObjGroups[0]", []).append(sg.name)
+            self.connections.setdefault(shape.name + ".instObjGroups[0]", []).append(sg.name)
             members.append(self.long_name(shape))
         self.set_members[sg.name] = members
         return mat
@@ -238,10 +264,12 @@ class Scene:
 
     def all_nodes(self):
         out = []
+
         def walk(n):
             out.append(n)
             for c in n.children:
                 walk(c)
+
         for r in self.roots:
             walk(r)
         return out
@@ -277,6 +305,7 @@ class Scene:
             box.expand(MPoint(*node.bbox[0]))
             box.expand(MPoint(*node.bbox[1]))
             return box
+
         # transform: gather descendant shapes into node-local space
         def walk(n, m_to_node):
             for c in n.children:
@@ -288,6 +317,7 @@ class Scene:
                     for corner in cb.corners():
                         box.expand(corner * c2node)
                 walk(c, c2node)
+
         walk(node, MMatrix())
         return box
 
@@ -301,23 +331,25 @@ class Scene:
         """
         nodes = []
         for n in self.all_nodes():
-            nodes.append({
-                "name": n.name,
-                "type": n.type,
-                "parent": self.long_name(n.parent) if n.parent else None,
-                "t": list(n.t),
-                "r": list(n.r),
-                "s": list(n.s),
-                "bbox": [list(n.bbox[0]), list(n.bbox[1])] if n.bbox else None,
-                "attrs": {
-                    k: list(v) if isinstance(v, (list, tuple)) else v
-                    for k, v in n.attrs.items()
-                },
-                "intermediate": n.intermediate,
-                "num_vertices": n.num_vertices,
-                "num_polygons": n.num_polygons,
-                "keyframes": n.keyframes,
-            })
+            nodes.append(
+                {
+                    "name": n.name,
+                    "type": n.type,
+                    "parent": self.long_name(n.parent) if n.parent else None,
+                    "t": list(n.t),
+                    "r": list(n.r),
+                    "s": list(n.s),
+                    "bbox": [list(n.bbox[0]), list(n.bbox[1])] if n.bbox else None,
+                    "attrs": {
+                        k: list(v) if isinstance(v, (list, tuple)) else v
+                        for k, v in n.attrs.items()
+                    },
+                    "intermediate": n.intermediate,
+                    "num_vertices": n.num_vertices,
+                    "num_polygons": n.num_polygons,
+                    "keyframes": n.keyframes,
+                }
+            )
         return {
             "nodes": nodes,
             "connections": self.connections,
@@ -342,12 +374,9 @@ class Scene:
             node.t = list(nd["t"])
             node.r = list(nd["r"])
             node.s = list(nd["s"])
-            node.bbox = (
-                (tuple(nd["bbox"][0]), tuple(nd["bbox"][1])) if nd["bbox"] else None
-            )
+            node.bbox = (tuple(nd["bbox"][0]), tuple(nd["bbox"][1])) if nd["bbox"] else None
             node.attrs = {
-                k: tuple(v) if isinstance(v, list) else v
-                for k, v in nd.get("attrs", {}).items()
+                k: tuple(v) if isinstance(v, list) else v for k, v in nd.get("attrs", {}).items()
             }
             node.intermediate = nd.get("intermediate", False)
             node.num_vertices = nd.get("num_vertices", 8)

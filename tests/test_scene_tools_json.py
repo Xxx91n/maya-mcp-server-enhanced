@@ -79,9 +79,7 @@ def tools(maya_env, monkeypatch):
     client = ExecClient(maya_env.module)
     manager = MagicMock()
     manager.get_client = AsyncMock(return_value=client)
-    monkeypatch.setattr(
-        "maya_mcp_server.server.get_session_manager", lambda: manager
-    )
+    monkeypatch.setattr("maya_mcp_server.server.get_session_manager", lambda: manager)
     mock_mcp = MagicMock()
     fns = {}
 
@@ -93,9 +91,7 @@ def tools(maya_env, monkeypatch):
 
     mock_mcp.tool = capture
     register_scene_tools(mock_mcp)
-    yield SimpleNamespace(
-        fns=fns, client=client, manager=manager, env=maya_env
-    )
+    yield SimpleNamespace(fns=fns, client=client, manager=manager, env=maya_env)
     _injected_sessions.discard("_default")
     _caches.clear()
     sys.modules.pop("_mcp_scene", None)
@@ -104,6 +100,7 @@ def tools(maya_env, monkeypatch):
 # ------------------------------------------------------------
 # JSON-serialized arguments (P0-2: injection surface removal)
 # ------------------------------------------------------------
+
 
 class TestJsonArgSerialization:
     async def test_validate_rules_via_json(self, tools):
@@ -200,9 +197,7 @@ class TestJsonArgSerialization:
     async def test_scene_assert_expectations_json(self, tools):
         tools.env.scene.add_mesh("GEO_box", t=(1, 2, 3))
         expectations = json.dumps({"GEO_box": {"position": [1, 2, 3]}})
-        out = await tools.fns["scene_assert"](
-            expectations=expectations, format="json"
-        )
+        out = await tools.fns["scene_assert"](expectations=expectations, format="json")
         res = json.loads(out)
         assert res["passed"] is True
 
@@ -227,6 +222,7 @@ class TestJsonArgSerialization:
 # ------------------------------------------------------------
 # Error passthrough (P0-1: result.error must not be dropped)
 # ------------------------------------------------------------
+
 
 class TestErrorPassthrough:
     async def test_scene_tool_raises_on_maya_error(self, tools, monkeypatch):
@@ -263,9 +259,7 @@ class TestErrorPassthrough:
         from maya_mcp_server import server
 
         client = AsyncMock()
-        client.execute_code.return_value = CommandResponse(
-            result={"ok": 1}, error=None
-        )
+        client.execute_code.return_value = CommandResponse(result={"ok": 1}, error=None)
         client.get_buffered_output.return_value = OutputBuffer()
         manager = MagicMock()
         manager.get_client = AsyncMock(return_value=client)

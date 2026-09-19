@@ -15,15 +15,22 @@ import zlib
 
 def png_bytes(w, h, rgb=(90, 120, 160)):
     """Deterministic, *valid* PNG (zlib-encoded) for the given size."""
+
     def chunk(tag, data):
         body = tag + data
-        return (struct.pack(">I", len(data)) + body
-                + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF))
+        return (
+            struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+        )
+
     ihdr = struct.pack(">IIBBBBB", int(w), int(h), 8, 2, 0, 0, 0)
     row = b"\x00" + bytes(rgb) * int(w)
     raw = row * int(h)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr)
-            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
 
 
 def _png_size(data):

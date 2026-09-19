@@ -41,15 +41,21 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _READ = mt.ToolAnnotations(
-    readOnlyHint=True, destructiveHint=False, idempotentHint=True,
+    readOnlyHint=True,
+    destructiveHint=False,
+    idempotentHint=True,
     openWorldHint=False,
 )
 _WRITE_SAFE = mt.ToolAnnotations(
-    readOnlyHint=False, destructiveHint=False, idempotentHint=False,
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=False,
     openWorldHint=False,
 )
 _WRITE_DESTRUCTIVE = mt.ToolAnnotations(
-    readOnlyHint=False, destructiveHint=True, idempotentHint=False,
+    readOnlyHint=False,
+    destructiveHint=True,
+    idempotentHint=False,
     openWorldHint=False,
 )
 
@@ -108,11 +114,7 @@ class SecurityPipeline(Middleware):
         if audit is not None:
             self.audit: AuditLogger | None = audit
         elif self.config.audit_enabled:
-            path = (
-                Path(self.config.audit_log_path)
-                if self.config.audit_log_path
-                else None
-            )
+            path = Path(self.config.audit_log_path) if self.config.audit_log_path else None
             self.audit = AuditLogger(path)
         else:
             self.audit = None
@@ -149,12 +151,8 @@ class SecurityPipeline(Middleware):
 
             # 2. rate limit \u2014 split read/write token buckets, per session
             if self.config.rate_limit_enabled:
-                kind = (
-                    "read" if tool_annotations(tool_name).readOnlyHint else "write"
-                )
-                limiter = (
-                    self._read_limiter if kind == "read" else self._write_limiter
-                )
+                kind = "read" if tool_annotations(tool_name).readOnlyHint else "write"
+                limiter = self._read_limiter if kind == "read" else self._write_limiter
                 if not limiter.try_consume(session_id):
                     wait = limiter.retry_after(session_id)
                     raise RateLimitExceededError(
@@ -164,10 +162,7 @@ class SecurityPipeline(Middleware):
                     )
 
             # 3. pattern scan \u2014 warn by default; only precise rules block
-            if (
-                self.config.enable_dangerous_pattern_warning
-                or self.config.block_dangerous_patterns
-            ):
+            if self.config.enable_dangerous_pattern_warning or self.config.block_dangerous_patterns:
                 warnings, blocked = scan_tool_params(
                     tool_name, args, set(self.config.pattern_exclusions)
                 )
@@ -177,8 +172,7 @@ class SecurityPipeline(Middleware):
                 if blocked:
                     hit = blocked[0]
                     raise PatternBlockedError(
-                        f"{tool_name}.{hit['param']} blocked by "
-                        f"{hit['rule_id']}: {hit['message']}",
+                        f"{tool_name}.{hit['param']} blocked by {hit['rule_id']}: {hit['message']}",
                         suggestion=(
                             "rephrase the input without the blocked pattern, "
                             "or tune via a rule_id x tool x param exclusion"
@@ -217,9 +211,7 @@ class SecurityPipeline(Middleware):
                 )
 
 
-def _resolve_session_id(
-    context: MiddlewareContext[Any], args: dict[str, Any]
-) -> str:
+def _resolve_session_id(context: MiddlewareContext[Any], args: dict[str, Any]) -> str:
     """Rate-limit/audit session key: session_key arg, else MCP session id."""
     sk = args.get("session_key")
     if isinstance(sk, str) and sk:

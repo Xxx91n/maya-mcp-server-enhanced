@@ -133,7 +133,7 @@ def _active_model_panel() -> str | None:
     except Exception:
         pass
     try:
-        for ed in (cmds.lsUI(editors=True) or []):
+        for ed in cmds.lsUI(editors=True) or []:
             try:
                 if cmds.modelEditor(ed, query=True, activeView=True):
                     return str(ed)
@@ -171,14 +171,11 @@ def _camera_switch_restored(panel: str, camera: str | None) -> Iterator[None]:
                         cmds.modelPanel(panel, edit=True, camera=prev_camera)
                     else:
                         logger.warning(
-                            "camera restore skipped for %s: "
-                            "prior camera unreadable",
+                            "camera restore skipped for %s: prior camera unreadable",
                             panel,
                         )
             except Exception:
-                logger.warning(
-                    "camera restore failed for panel %s", panel
-                )
+                logger.warning("camera restore failed for panel %s", panel)
 
 
 # ---------------------------------------------------------------------------
@@ -329,8 +326,7 @@ def render_preview(
         return _err(
             "camera_not_found",
             f"camera {camera!r} does not exist",
-            "pass a camera name from scene_snapshot, or omit camera "
-            "to capture the current view",
+            "pass a camera name from scene_snapshot, or omit camera to capture the current view",
         )
     panel = _active_model_panel()
     if not panel:
@@ -341,9 +337,7 @@ def render_preview(
         )
 
     prev_time = cmds.currentTime(query=True)
-    tmp_base = os.path.join(
-        tempfile.gettempdir(), f"_mcp_visual_{uuid.uuid4().hex}"
-    )
+    tmp_base = os.path.join(tempfile.gettempdir(), f"_mcp_visual_{uuid.uuid4().hex}")
     png_path = tmp_base + ".png"
     try:
         with _camera_switch_restored(panel, camera):
@@ -367,8 +361,7 @@ def render_preview(
                 return _err(
                     "capture_empty",
                     "playblast produced no image data",
-                    "retry on a GUI session; batch-mode playblast "
-                    "silently writes empty files",
+                    "retry on a GUI session; batch-mode playblast silently writes empty files",
                 )
             data, w, h = _encode_file(produced, max_size, format, quality)
 

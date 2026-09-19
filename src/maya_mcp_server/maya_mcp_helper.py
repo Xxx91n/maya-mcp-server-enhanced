@@ -105,9 +105,7 @@ class FrameTooLargeError(Exception):
     def __init__(self, declared: int, max_size: int) -> None:
         self.declared = declared
         self.max_size = max_size
-        super().__init__(
-            f"declared frame length {declared} exceeds cap {max_size}"
-        )
+        super().__init__(f"declared frame length {declared} exceeds cap {max_size}")
 
 
 def encode_frame(payload: bytes) -> bytes:
@@ -139,10 +137,8 @@ class FrameDecoder:
                 raise FrameTooLargeError(n, self.max_frame_size)
             if len(self._buf) < FRAME_HEADER_SIZE + n:
                 break
-            frames.append(
-                bytes(self._buf[FRAME_HEADER_SIZE:FRAME_HEADER_SIZE + n])
-            )
-            del self._buf[:FRAME_HEADER_SIZE + n]
+            frames.append(bytes(self._buf[FRAME_HEADER_SIZE : FRAME_HEADER_SIZE + n]))
+            del self._buf[: FRAME_HEADER_SIZE + n]
         return frames
 
 
@@ -249,6 +245,7 @@ def execute(code: str, result_type: str = "NONE") -> str:
     # __builtins__ is fully present and code runs with Maya's privileges —
     # the safety net is host-side (pattern scan, rate limit, audit).
     import sys
+
     context = {"__builtins__": __builtins__, "__name__": "__mcp_exec__", "__doc__": None}
     for mod_name in list(sys.modules.keys()):
         if mod_name.startswith(("maya", "mcp", "_mcp")):
@@ -335,8 +332,10 @@ def dispatch_request(request: dict[str, Any], server: Any = None) -> dict[str, A
                 return {
                     "id": req_id,
                     "result": None,
-                    "error": {"code": "unavailable",
-                              "message": "create_module function not available"},
+                    "error": {
+                        "code": "unavailable",
+                        "message": "create_module function not available",
+                    },
                 }
             result_str = create_module_func(
                 params.get("name", ""), params.get("code", ""), params.get("overwrite", False)
@@ -366,8 +365,7 @@ def dispatch_request(request: dict[str, Any], server: Any = None) -> dict[str, A
             return {
                 "id": req_id,
                 "result": None,
-                "error": {"code": "unknown_method",
-                          "message": f"Unknown method: {method}"},
+                "error": {"code": "unknown_method", "message": f"Unknown method: {method}"},
             }
     except Exception as e:
         return {
@@ -412,8 +410,7 @@ class ClientChannel:
     Kept Qt-free so the protocol path is testable without an event loop.
     """
 
-    def __init__(self, sock: Any, server: Any = None,
-                 max_frame_size: int = MAX_FRAME_SIZE) -> None:
+    def __init__(self, sock: Any, server: Any = None, max_frame_size: int = MAX_FRAME_SIZE) -> None:
         self.socket = sock
         self.server = server
         self.max_frame_size = max_frame_size
@@ -428,11 +425,13 @@ class ClientChannel:
         try:
             frames = self.decoder.feed(bytes(self.socket.readAll()))
         except FrameTooLargeError as e:
-            self._write_obj({
-                "id": None,
-                "result": None,
-                "error": {"code": "frame_too_large", "message": str(e)},
-            })
+            self._write_obj(
+                {
+                    "id": None,
+                    "result": None,
+                    "error": {"code": "frame_too_large", "message": str(e)},
+                }
+            )
             self.close()
             return
         self._queue.extend(frames)
@@ -451,10 +450,7 @@ class ClientChannel:
                 "result": None,
                 "error": {
                     "code": "response_too_large",
-                    "message": (
-                        f"response {len(data)}B exceeds "
-                        f"frame cap {self.max_frame_size}B"
-                    ),
+                    "message": (f"response {len(data)}B exceeds frame cap {self.max_frame_size}B"),
                 },
             }
             data = json.dumps(obj).encode("utf-8")
@@ -584,13 +580,15 @@ def start_qt_server(port: int) -> str:
         # Without a live QCoreApplication, Qt signals never fire - same zombie.
         headless = QCoreApplication is None or QCoreApplication.instance() is None
     if headless:
-        return json.dumps({
-            "error": {
-                "code": "qt_unavailable_headless",
-                "message": "Qt event loop unavailable (headless Maya)",
-                "suggestion": "run Maya GUI, or fall back to the native commandPort channel",
+        return json.dumps(
+            {
+                "error": {
+                    "code": "qt_unavailable_headless",
+                    "message": "Qt event loop unavailable (headless Maya)",
+                    "suggestion": "run Maya GUI, or fall back to the native commandPort channel",
+                }
             }
-        })
+        )
 
     try:
         _qt_server = QtCommandServer(port)
@@ -620,8 +618,7 @@ def stop_qt_server() -> str:
 def get_qt_server_port() -> str:
     """Get the port of the running Qt server."""
     if _qt_server is None:
-        return json.dumps({
-            "error": {"code": "server_not_running", "message": "Server not running"}
-        })
+        return json.dumps(
+            {"error": {"code": "server_not_running", "message": "Server not running"}}
+        )
     return json.dumps({"port": _qt_server.port})
-

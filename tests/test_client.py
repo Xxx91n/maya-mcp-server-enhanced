@@ -631,9 +631,7 @@ class TestTypedErrors:
         assert isinstance(ei.value, MayaConnectionError)
 
     @pytest.mark.asyncio
-    async def test_native_send_appends_newline_terminator(
-        self, maya_client: MayaClient
-    ) -> None:
+    async def test_native_send_appends_newline_terminator(self, maya_client: MayaClient) -> None:
         """D-041: commandPort executes on newline - every send carries the
         unconditional newline terminator (off-by-one guard, audit T-11 F1)."""
         maya_client._writer.drain = AsyncMock()
@@ -741,9 +739,7 @@ class TestBootstrapFallback:
                     },
                 )
             if method == maya_client.START_COMMAND_PORT:
-                return CommandResponse(
-                    result={"success": True, "port": params["port"]}, error=None
-                )
+                return CommandResponse(result={"success": True, "port": params["port"]}, error=None)
             return CommandResponse(result=None, error=None)
 
         mocker.patch.object(maya_client, "_bootstrap", new=AsyncMock())
@@ -772,9 +768,7 @@ class TestBootstrapFallback:
                     result={"port": 55_501, "already_running": False}, error=None
                 )
             if method == maya_client.START_COMMAND_PORT:
-                return CommandResponse(
-                    result={"success": True, "port": params["port"]}, error=None
-                )
+                return CommandResponse(result={"success": True, "port": params["port"]}, error=None)
             return CommandResponse(result=None, error=None)
 
         mocker.patch.object(maya_client, "_bootstrap", new=AsyncMock())
@@ -794,9 +788,7 @@ class TestBootstrapFallback:
         assert new_client.framed_channel is False
 
     @pytest.mark.asyncio
-    async def test_qt_success_uses_framed_client(
-        self, maya_client: MayaClient, mocker
-    ) -> None:
+    async def test_qt_success_uses_framed_client(self, maya_client: MayaClient, mocker) -> None:
         qt_port = 55_555
 
         async def fake_send(method, params=None, raise_on_error=True):

@@ -73,6 +73,7 @@ async def _ensure_module_injected(client: Any, session_key: str | None) -> None:
     # inject directly via write_module (D-013).
     if len(source) > 15000 and not getattr(client, "framed_channel", False):
         import tempfile as _tf, os as _os
+
         _ResultType = __import__("maya_mcp_server.types", fromlist=["ResultType"]).ResultType
         # Write source to temp file on the CLIENT side, then read it from Maya
         _tmp = _os.path.join(_tf.gettempdir(), "_mcp_scene_src.py")
@@ -82,13 +83,18 @@ async def _ensure_module_injected(client: Any, session_key: str | None) -> None:
         # The temp file is accessible from both sides since they're on the same machine
         _tmp_safe = _tmp.replace("\\", "/")
         await client.execute_code(
-            "import types, sys, json; _c=open(json.loads(" + json.dumps(json.dumps(_tmp_safe)) + ")).read(); _m=types.ModuleType('_mcp_scene'); _m.__file__='<mcp:_mcp_scene>'; exec(compile(_c,'_mcp_scene.py','exec'),_m.__dict__); sys.modules['_mcp_scene']=_m",
+            "import types, sys, json; _c=open(json.loads("
+            + json.dumps(json.dumps(_tmp_safe))
+            + ")).read(); _m=types.ModuleType('_mcp_scene'); _m.__file__='<mcp:_mcp_scene>'; exec(compile(_c,'_mcp_scene.py','exec'),_m.__dict__); sys.modules['_mcp_scene']=_m",
             _ResultType.NONE,
         )
     else:
         await client.write_module("_mcp_scene", source, overwrite=True)
     # Pre-import the module so subsequent calls use expression-only syntax
-    await client.execute_code("import _mcp_scene", __import__("maya_mcp_server.types", fromlist=["ResultType"]).ResultType.NONE)
+    await client.execute_code(
+        "import _mcp_scene",
+        __import__("maya_mcp_server.types", fromlist=["ResultType"]).ResultType.NONE,
+    )
     _injected_sessions.add(key)
     logger.info(f"Injected _mcp_scene module into session {key}")
 
@@ -147,6 +153,7 @@ def _scene_call(fn_name: str, *args: Any, **kwargs: Any) -> str:
 
 # --- Token Budget Management ---
 
+
 class TokenBudget:
     """Auto-adjust detail level based on scene size."""
 
@@ -174,6 +181,7 @@ class TokenBudget:
 
 
 # --- MCP Tool Registration ---
+
 
 def register_scene_tools(mcp: Any) -> None:
     """Register scene tools on the FastMCP instance.
@@ -365,17 +373,18 @@ except Exception as e:
 
 result
 """
-        obj_data = await _execute_scene_code(
-            client, code, session_key, use_cache=False
-        )
+        obj_data = await _execute_scene_code(client, code, session_key, use_cache=False)
 
         # Neighbors
         neighbors = None
         if include_neighbors and "error" not in obj_data:
             spatial_code = _scene_call("get_spatial_index")
             spatial_data = await _execute_scene_code(
-                client, spatial_code, session_key,
-                use_cache=True, cache_key="spatial_index",
+                client,
+                spatial_code,
+                session_key,
+                use_cache=True,
+                cache_key="spatial_index",
             )
 
             # Find neighbors for this object
@@ -439,9 +448,7 @@ result
         await _ensure_module_injected(client, session_key)
 
         code = _scene_call("measure", obj_a, obj_b, mode)
-        result = await _execute_scene_code(
-            client, code, session_key, use_cache=False
-        )
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
 
         if format == "json":
             return json.dumps(result, indent=2)
@@ -484,13 +491,9 @@ result
         try:
             json.loads(expectations)
         except json.JSONDecodeError as e:
-            raise InputValidationError(
-                f"expectations must be valid JSON: {e}"
-            ) from e
+            raise InputValidationError(f"expectations must be valid JSON: {e}") from e
         code = _scene_call("assert_scene_state", expectations)
-        result = await _execute_scene_code(
-            client, code, session_key, use_cache=False
-        )
+        result = await _execute_scene_code(client, code, session_key, use_cache=False)
 
         if format == "json":
             return json.dumps(result, indent=2)
@@ -542,7 +545,9 @@ result
             return json.dumps(result, indent=2)
         else:
             passed = "PASS" if result.get("passed") else "FAIL"
-            lines = [f"VALIDATE[{passed}]: {result.get('checked', 0)} checks, {result.get('violation_count', 0)} violations"]
+            lines = [
+                f"VALIDATE[{passed}]: {result.get('checked', 0)} checks, {result.get('violation_count', 0)} violations"
+            ]
             for v in result.get("violations", [])[:10]:
                 lines.append(f"  VIOLATION: {v.get('type')} - {v}")
             return "\n".join(lines)
@@ -626,7 +631,8 @@ result
         await _ensure_module_injected(client, session_key)
 
         code = _scene_call(
-            "rollback_to_checkpoint", filename,
+            "rollback_to_checkpoint",
+            filename,
             discard_current_state=discard_current_state,
         )
         result = await _execute_scene_code(client, code, session_key, use_cache=False)
@@ -657,7 +663,6 @@ result
         code = _scene_call("list_checkpoints")
         result = await _execute_scene_code(client, code, session_key, use_cache=False)
         return json.dumps(result, indent=2)
-
 
     # ============================================================
     # P1: Camera / Shot Planning
@@ -695,7 +700,10 @@ result
         await _ensure_module_injected(client, session_key)
 
         code = _scene_call(
-            "create_camera_shot", target, shot_type, name,
+            "create_camera_shot",
+            target,
+            shot_type,
+            name,
             {"azimuth": azimuth, "elevation": elevation},
         )
         result = await _execute_scene_code(client, code, session_key, use_cache=False)
@@ -731,9 +739,7 @@ result
         try:
             center_obj = json.loads(center)
         except json.JSONDecodeError as e:
-            raise InputValidationError(
-                f"center must be a JSON array [x, y, z]: {e}"
-            ) from e
+            raise InputValidationError(f"center must be a JSON array [x, y, z]: {e}") from e
         code = _scene_call("create_orbit_camera", center_obj, radius, frames, name)
         result = await _execute_scene_code(client, code, session_key, use_cache=False)
         mark_dirty(session_key)
@@ -786,13 +792,14 @@ result
 
             out = [
                 "AESTHETIC_SCORE[%s/100] GRADE=%s" % (overall, grade),
-                "  COLOR[%s] SPATIAL[%s] SCALE[%s]" % (
+                "  COLOR[%s] SPATIAL[%s] SCALE[%s]"
+                % (
                     dims.get("color_theory", "?"),
                     dims.get("spatial_composition", "?"),
-                    dims.get("proportion_scale", "?")),
-                "  LIGHT[%s] FLOW[%s]" % (
-                    dims.get("lighting_quality", "?"),
-                    dims.get("visual_flow", "?")),
+                    dims.get("proportion_scale", "?"),
+                ),
+                "  LIGHT[%s] FLOW[%s]"
+                % (dims.get("lighting_quality", "?"), dims.get("visual_flow", "?")),
             ]
 
             # Detail sub-scores
@@ -800,17 +807,28 @@ result
             ct = detail.get("color_theory", {})
             if ct.get("sub_scores"):
                 ss = ct["sub_scores"]
-                out.append("  COLOR_DETAIL: 60-30-10=%s temp=%s sat=%s harmony=%s contrast=%s" % (
-                    ss.get("60_30_10", "?"), ss.get("temperature", "?"),
-                    ss.get("saturation", "?"), ss.get("harmony", "?"),
-                    ss.get("contrast", "?")))
+                out.append(
+                    "  COLOR_DETAIL: 60-30-10=%s temp=%s sat=%s harmony=%s contrast=%s"
+                    % (
+                        ss.get("60_30_10", "?"),
+                        ss.get("temperature", "?"),
+                        ss.get("saturation", "?"),
+                        ss.get("harmony", "?"),
+                        ss.get("contrast", "?"),
+                    )
+                )
 
             sc = detail.get("spatial_composition", {})
             if sc.get("sub_scores"):
                 ss = sc["sub_scores"]
-                out.append("  SPATIAL_DETAIL: golden=%s thirds=%s balance=%s" % (
-                    ss.get("golden_ratio", "?"), ss.get("rule_of_thirds", "?"),
-                    ss.get("visual_balance", "?")))
+                out.append(
+                    "  SPATIAL_DETAIL: golden=%s thirds=%s balance=%s"
+                    % (
+                        ss.get("golden_ratio", "?"),
+                        ss.get("rule_of_thirds", "?"),
+                        ss.get("visual_balance", "?"),
+                    )
+                )
 
             if suggestions:
                 improve_parts = []
@@ -819,7 +837,6 @@ result
                 out.append("  IMPROVE: " + " | ".join(improve_parts))
 
             return "\n".join(out)
-
 
     @mcp.tool(annotations=TOOL_ANNOTATIONS["scene_review"])
     async def scene_review(
@@ -850,9 +867,7 @@ result
         client = await manager.get_client(session_key)
         await _ensure_module_injected(client, session_key)
 
-        checks_obj = None if checks == "all" else [
-            c.strip() for c in checks.split(",")
-        ]
+        checks_obj = None if checks == "all" else [c.strip() for c in checks.split(",")]
         code = _scene_call("scene_review", checks_obj)
         result = await _execute_scene_code(client, code, session_key, use_cache=False)
 
@@ -905,9 +920,7 @@ result
         client = await manager.get_client(session_key)
         await _ensure_module_injected(client, session_key)
 
-        code = _scene_call(
-            "scene_plan", objective=objective or None, auto_fix=auto_fix
-        )
+        code = _scene_call("scene_plan", objective=objective or None, auto_fix=auto_fix)
         result = await _execute_scene_code(client, code, session_key, use_cache=False)
 
         if format == "json":
@@ -920,7 +933,7 @@ result
             zone = result.get("zone_analysis", {})
             actions = result.get("action_plan", [])
 
-            org_stats = org.get('stats', {})
+            org_stats = org.get("stats", {})
             out = [
                 f"SCENE_PLAN[{health}/100] GRADE={grade}",
                 f"  ORG: score={org.get('health_score', '?')} "
@@ -933,8 +946,7 @@ result
             if actions:
                 out.append("  ACTIONS:")
                 for a in actions[:5]:
-                    pri = a.get('priority', '?').upper()
+                    pri = a.get("priority", "?").upper()
                     out.append(f"    {a['step']}. [{pri}] {a.get('description', '')}")
 
             return "\n".join(out)
-

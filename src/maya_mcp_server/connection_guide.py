@@ -111,9 +111,7 @@ def _platform_scan_roots() -> list[tuple[Path, str]]:
     if system == "windows":
         roots.append(
             (
-                Path(os.environ.get("USERPROFILE", str(home)))
-                / "Documents"
-                / "maya",
+                Path(os.environ.get("USERPROFILE", str(home))) / "Documents" / "maya",
                 "Windows Documents/maya",
             )
         )
@@ -148,9 +146,7 @@ def find_maya_installations() -> list[MayaInstallInfo]:
             continue
         for ver in SUPPORTED_MAYA_VERSIONS:
             scripts_dir = root / str(ver) / "scripts"
-            if scripts_dir.exists() and not any(
-                r.scripts_dir == scripts_dir for r in results
-            ):
+            if scripts_dir.exists() and not any(r.scripts_dir == scripts_dir for r in results):
                 results.append(
                     MayaInstallInfo(
                         version=str(ver),
@@ -212,7 +208,7 @@ def _strip_block(content: str) -> str | None:
     if region is None or region[1] < 0:
         return None
     start, end = region
-    return "".join(lines[:start] + lines[end + 1:])
+    return "".join(lines[:start] + lines[end + 1 :])
 
 
 def _replace_block(content: str, block: str) -> str | None:
@@ -222,7 +218,7 @@ def _replace_block(content: str, block: str) -> str | None:
     if region is None or region[1] < 0:
         return None
     start, end = region
-    return "".join(lines[:start]) + block + "".join(lines[end + 1:])
+    return "".join(lines[:start]) + block + "".join(lines[end + 1 :])
 
 
 def install_user_setup(
@@ -303,8 +299,7 @@ def install_user_setup(
                 entry["error"] = {
                     "code": "unparseable_file",
                     "message": (
-                        f"{target_path} is not parseable Python "
-                        f"({e}); refusing to modify it"
+                        f"{target_path} is not parseable Python ({e}); refusing to modify it"
                     ),
                 }
                 entry["fallback"] = (
@@ -360,8 +355,7 @@ def install_user_setup(
                 ),
             }
             entry["fallback"] = (
-                "Remove the dangling marker line manually, or fix the "
-                "file, then retry."
+                "Remove the dangling marker line manually, or fix the file, then retry."
             )
             results.append(entry)
             continue
@@ -677,6 +671,7 @@ def get_connection_diagnostics(port: int = DEFAULT_COMMAND_PORT) -> dict[str, An
     # Check if Maya is running
     try:
         import psutil
+
         for proc in psutil.process_iter(["name"]):
             try:
                 name = proc.info.get("name", "")
@@ -691,6 +686,7 @@ def get_connection_diagnostics(port: int = DEFAULT_COMMAND_PORT) -> dict[str, An
     # Check if port is listening
     try:
         import socket
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1.0)
             result = s.connect_ex(("127.0.0.1", port))
@@ -702,10 +698,12 @@ def get_connection_diagnostics(port: int = DEFAULT_COMMAND_PORT) -> dict[str, An
     installations = find_maya_installations()
     for install in installations:
         if install.user_setup_path.exists():
-            diagnostics["user_setup_found"].append({
-                "version": install.version,
-                "path": str(install.user_setup_path),
-            })
+            diagnostics["user_setup_found"].append(
+                {
+                    "version": install.version,
+                    "path": str(install.user_setup_path),
+                }
+            )
 
     # Generate issues and suggestions
     if not diagnostics["maya_running"]:
@@ -714,8 +712,7 @@ def get_connection_diagnostics(port: int = DEFAULT_COMMAND_PORT) -> dict[str, An
 
     if diagnostics["maya_running"] and not diagnostics["port_open"]:
         diagnostics["issues"].append(
-            f"Maya 正在运行但端口 {port} 未打开 / "
-            f"Maya is running but port {port} is not open"
+            f"Maya 正在运行但端口 {port} 未打开 / Maya is running but port {port} is not open"
         )
         if not diagnostics["user_setup_found"]:
             diagnostics["suggestions"].append(

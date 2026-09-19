@@ -9,21 +9,24 @@ from typing import Any
 
 class DetailLevel(str, Enum):
     """Detail level for scene graph queries."""
-    COMPACT = "compact"      # name, type, position, bbox, child_count
-    STANDARD = "standard"    # compact + material, vertex/face count
-    FULL = "full"            # standard + vertices, normals, UVs (single object)
+
+    COMPACT = "compact"  # name, type, position, bbox, child_count
+    STANDARD = "standard"  # compact + material, vertex/face count
+    FULL = "full"  # standard + vertices, normals, UVs (single object)
 
 
 class MeasureMode(str, Enum):
     """Mode for spatial measurements."""
-    CENTER = "center"        # center-to-center distance
-    SURFACE = "surface"      # closest surface point distance
+
+    CENTER = "center"  # center-to-center distance
+    SURFACE = "surface"  # closest surface point distance
     CLEARANCE = "clearance"  # gap/clearance distance
-    BBOX = "bbox"            # bounding box overlap detection
+    BBOX = "bbox"  # bounding box overlap detection
 
 
 class NodeType(str, Enum):
     """Scene node type classification."""
+
     MESH = "mesh"
     CAMERA = "camera"
     LIGHT = "light"
@@ -37,6 +40,7 @@ class NodeType(str, Enum):
 @dataclass
 class SceneObject:
     """Compact representation of a scene object."""
+
     name: str
     node_type: NodeType
     position: list[float]  # [x, y, z]
@@ -52,6 +56,7 @@ class SceneObject:
 @dataclass
 class ZoneInfo:
     """Information about a spatial zone/region."""
+
     name: str
     pattern_matched: str
     objects: list[str]  # object names in this zone
@@ -64,6 +69,7 @@ class ZoneInfo:
 @dataclass
 class SpatialRelation:
     """Spatial relationship between two objects."""
+
     obj_a: str
     obj_b: str
     distance: float
@@ -74,6 +80,7 @@ class SpatialRelation:
 @dataclass
 class SceneGraph:
     """Complete scene graph with metadata."""
+
     objects: list[SceneObject]
     zones: list[ZoneInfo]
     stats: dict[str, Any]
@@ -84,6 +91,7 @@ class SceneGraph:
 @dataclass
 class MeasurementResult:
     """Result of a spatial measurement."""
+
     obj_a: str
     obj_b: str
     mode: str
@@ -96,6 +104,7 @@ class MeasurementResult:
 @dataclass
 class AssertionResult:
     """Result of a scene assertion check."""
+
     passed: bool
     mismatches: list[dict[str, Any]] = field(default_factory=list)
     checked_count: int = 0

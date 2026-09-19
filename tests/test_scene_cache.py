@@ -1,4 +1,4 @@
-﻿"""Tests for scene_cache.py."""
+"""Tests for scene_cache.py."""
 
 from __future__ import annotations
 
@@ -135,4 +135,4 @@ class TestSceneCache:
 
         assert cache._hit_count == 1
         assert cache._miss_count == 2
-        assert abs(cache.hit_rate - 1/3) < 0.01
+        assert abs(cache.hit_rate - 1 / 3) < 0.01

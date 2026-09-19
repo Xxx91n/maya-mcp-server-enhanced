@@ -110,9 +110,7 @@ class MFnMesh(MFnDagNode):
         node = self._node
         mn, mx = node.bbox or ((0, 0, 0), (0, 0, 0))
         corners = [
-            MPoint(mn[0] if k & 1 else mx[0],
-                   mn[1] if k & 2 else mx[1],
-                   mn[2] if k & 4 else mx[2])
+            MPoint(mn[0] if k & 1 else mx[0], mn[1] if k & 2 else mx[1], mn[2] if k & 4 else mx[2])
             for k in range(8)
         ]
         p = corners[i % 8]
