@@ -125,3 +125,7 @@ _Avoid_: 全绿门槛、noqa 打标基线
 **休眠代码 (dormant code)**:
 有明确排期复用决策（如 T-06）而保留、但当前零生产引用的代码；必须机器可见标注（AGENTS.md 联动表+预算/配置说明），docstring 装饰不算数。区别于死代码（无复用计划应删除，git 历史即期权）与负债代码（在被引用的生产路径上）。休眠代码的测试计为 dormant 覆盖，不得虚增“已验证”叙事。
 _Avoid_: 仅口头休眠、无锚点标注、把 dormant 测试算进生产覆盖率叙事
+
+**棘爪 (ratchet pawl)**:
+冻结预算之外的防侵蚀单向机制——预算只降不升之外还须堵“抑制项只增不减”的侧门：mypy 落地为 warn_unused_ignores+warn_unused_configs（不再必要的 ignore/override 立即显形）、lint 落地为 noqa 审计与预算下调须同 commit 说明；无棘爪的 ratchet 会因抑制面静默膨胀而失效。
+_Avoid_: 只设预算不设棘爪
