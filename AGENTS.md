@@ -143,8 +143,11 @@ If userSetup.py does not work, guide the user to:
 # Run tests
 python -m pytest tests/ -q
 
-# Lint vs frozen budget (.github/ruff-baseline.json — ratchet down only)
+# Lint vs frozen per-rule budget (.github/ruff-baseline.json — ratchet down only)
 ruff check .
+
+# Typecheck vs frozen baseline (mypy-baseline.txt — fails only on NEW errors)
+python -m mypy src/ | mypy-baseline filter
 
 # Run with debug logging (-v=INFO, -vv=DEBUG)
 python -m maya_mcp_server -vv

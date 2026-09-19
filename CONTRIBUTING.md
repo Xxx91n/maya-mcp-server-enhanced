@@ -8,7 +8,7 @@ pre-commit install                  # one-time: wire git hooks (.pre-commit-conf
 pre-commit run --all-files          # full sweep — the same checks the CI lint job runs
 python -m pytest tests/ -q         # stub-layer suite (contract tests vs the maya.cmds stub)
 ruff check .                        # lint — frozen budget gate (.github/ruff-baseline.json), ratchet only goes down
-mypy src                           # typecheck — strict for new files
+python -m mypy src | mypy-baseline filter   # typecheck gate — fails only on NEW errors vs mypy-baseline.txt
 python -m maya_mcp_server -vv      # run with DEBUG logs (-v=INFO, -vv=DEBUG)
 ```
 
@@ -27,8 +27,12 @@ House rules:
   budgeted down in the same PR commit with the reason stated. The `src` count includes
   `aesthetic_engine.py`, a **dormant** module (zero production references; Maya-side inline
   `_score_*` is the live implementation — kept for the T-06 consolidation decision, see the
-  ADR-0003 status note and D-038). `mypy` (221 known errors) runs locally
-  but is not a CI gate yet (full quality gate is a later round).
+  ADR-0003 status note and D-038). `mypy` is baseline-gated in CI (`mypy-baseline.txt`; 223 errors in 3 files
+  as of the post-audit resync — baseline counts are stub-env sensitive; drift trail
+  221→223→212→223 across formatter and stub-environment changes): `python -m mypy src | mypy-baseline filter` fails only on NEW errors.
+  After resolving errors, run `python -m mypy src | mypy-baseline sync` and commit
+  the refreshed baseline in the same PR. The ruff budget is per-rule
+  (`{segment:{rule:count}}`) since T-10b — rules cannot subsidise each other.
 
 ## Conduct
 
