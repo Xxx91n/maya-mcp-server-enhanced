@@ -4,7 +4,7 @@
 
 English | [中文](README.md)
 
-[![CI](https://github.com/Xxx91n/mcp-for-maya/actions/workflows/ci.yml/badge.svg)](https://github.com/Xxx91n/mcp-for-maya/actions/workflows/ci.yml)
+[![CI](https://github.com/Xxx91n/mcp-for-maya/actions/workflows/ci.yml/badge.svg)](https://github.com/Xxx91n/mcp-for-maya/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/mcp-for-maya?cacheSeconds=300)](https://pypi.org/project/mcp-for-maya/)
 
 ## What Is This
 
@@ -50,17 +50,19 @@ Asset integration is on our roadmap (Poly Haven thin slice, issue #2); AI genera
 ### 1. Install
 
 ```bash
-# Install straight from git with uv (works today)
+# Install from PyPI (recommended)
+pip install mcp-for-maya
+
+# or run straight away with uvx
+uvx mcp-for-maya
+
+# alternative: install from git with uv
 uv tool install git+https://github.com/Xxx91n/mcp-for-maya.git
 
 # or clone the source
 git clone https://github.com/Xxx91n/mcp-for-maya.git
 cd mcp-for-maya
 pip install -e .
-
-# PyPI coming soon (0.1.0 release in flight):
-# pip install mcp-for-maya
-# uvx mcp-for-maya
 ```
 
 > [!NOTE]
@@ -117,11 +119,11 @@ Codex `~/.codex/config.toml`:
 ```toml
 [mcp_servers.maya]
 command = "uvx"
-args = ["--from", "git+https://github.com/Xxx91n/mcp-for-maya.git", "mcp-for-maya"]
+args = ["mcp-for-maya"]
 tool_timeout_sec = 120
 ```
 
-For a source checkout use `command = "python"`, `args = ["-m", "maya_mcp_server"]`, and point `PYTHONPATH` at `<repo>/src` under `env`. Once the PyPI release lands, `args` simplifies to `["mcp-for-maya"]` (no `--from`).
+For the git source use `args = ["--from", "git+https://github.com/Xxx91n/mcp-for-maya.git", "mcp-for-maya"]`; for a source checkout use `command = "python"`, `args = ["-m", "maya_mcp_server"]`, and point `PYTHONPATH` at `<repo>/src` under `env`.
 
 ### 4. Use it
 

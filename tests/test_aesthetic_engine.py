@@ -7,7 +7,8 @@ decision; they are not evidence of a verified production path.
 
 import pytest
 from maya_mcp_server.aesthetic_engine import (
-    PHI, HUMAN_EYE_HEIGHT,
+    PHI,
+    HUMAN_EYE_HEIGHT,
     analyze_60_30_10,
     analyze_color_harmony,
     analyze_color_temperature,
@@ -38,6 +39,7 @@ from maya_mcp_server.aesthetic_engine import (
 # ============================================================
 # Color Theory Tests
 # ============================================================
+
 
 class TestRgbToHsl:
     def test_pure_red(self):
@@ -200,6 +202,7 @@ class TestColorTemperatureAnalysis:
 # Spatial Composition Tests
 # ============================================================
 
+
 class TestGoldenRatio:
     def test_golden_ratio_match(self):
         objects = [
@@ -267,6 +270,7 @@ class TestVisualWeightBalance:
 # Proportion & Scale Tests
 # ============================================================
 
+
 class TestHumanScale:
     def test_good_display_height(self):
         objects = [
@@ -319,11 +323,17 @@ class TestScaleHierarchy:
 # Lighting Tests
 # ============================================================
 
+
 class TestLightingLayers:
     def test_complete_setup(self):
         lights = [
             {"name": "key_light", "type": "directionalLight", "color": [1, 1, 1], "intensity": 1.0},
-            {"name": "fill_ambient", "type": "ambientLight", "color": [0.8, 0.8, 0.9], "intensity": 0.5},
+            {
+                "name": "fill_ambient",
+                "type": "ambientLight",
+                "color": [0.8, 0.8, 0.9],
+                "intensity": 0.5,
+            },
             {"name": "accent_spot", "type": "spotLight", "color": [1, 0.9, 0.8], "intensity": 0.8},
         ]
         result = analyze_lighting_layers(lights)
@@ -335,7 +345,9 @@ class TestLightingLayers:
         assert result["score"] == 0
 
     def test_only_key(self):
-        lights = [{"name": "key_main", "type": "directionalLight", "color": [1, 1, 1], "intensity": 1.0}]
+        lights = [
+            {"name": "key_main", "type": "directionalLight", "color": [1, 1, 1], "intensity": 1.0}
+        ]
         result = analyze_lighting_layers(lights)
         assert "fill" in result["missing"]
 
@@ -362,19 +374,40 @@ class TestLightTemperature:
 # Visual Flow Tests
 # ============================================================
 
+
 class TestSightLines:
     def test_clear_sight(self):
         objects = [
-            {"name": "focal_hero", "position": [0, 0, 500], "bbox_size": [100, 100, 100], "is_focal": True},
-            {"name": "wall_left", "position": [-300, 0, 200], "bbox_size": [50, 200, 50], "is_focal": False},
+            {
+                "name": "focal_hero",
+                "position": [0, 0, 500],
+                "bbox_size": [100, 100, 100],
+                "is_focal": True,
+            },
+            {
+                "name": "wall_left",
+                "position": [-300, 0, 200],
+                "bbox_size": [50, 200, 50],
+                "is_focal": False,
+            },
         ]
         result = analyze_sight_lines(objects, [0, 0, -500])
         assert result["score"] > 70
 
     def test_blocked_sight(self):
         objects = [
-            {"name": "focal_hero", "position": [0, 0, 500], "bbox_size": [100, 100, 100], "is_focal": True},
-            {"name": "big_wall", "position": [0, 0, 100], "bbox_size": [400, 400, 400], "is_focal": False},
+            {
+                "name": "focal_hero",
+                "position": [0, 0, 500],
+                "bbox_size": [100, 100, 100],
+                "is_focal": True,
+            },
+            {
+                "name": "big_wall",
+                "position": [0, 0, 100],
+                "bbox_size": [400, 400, 400],
+                "is_focal": False,
+            },
         ]
         result = analyze_sight_lines(objects, [0, 0, -500])
         assert len(result["blocked_lines"]) > 0
@@ -422,12 +455,33 @@ class TestVisualRhythm:
 class TestEnhancedLighting:
     def test_three_point_setup(self):
         lights = [
-            {"name": "key_main", "type": "spotLight", "color": [1, 0.95, 0.9], "intensity": 1.0,
-             "position": [200, 300, 100], "shadow": True, "decay": 2},
-            {"name": "fill_ambient", "type": "areaLight", "color": [0.9, 0.92, 1.0], "intensity": 0.4,
-             "position": [-200, 200, 50], "shadow": False, "decay": 2},
-            {"name": "rim_edge", "type": "spotLight", "color": [1, 0.98, 0.95], "intensity": 0.6,
-             "position": [0, 250, -200], "shadow": True, "decay": 2},
+            {
+                "name": "key_main",
+                "type": "spotLight",
+                "color": [1, 0.95, 0.9],
+                "intensity": 1.0,
+                "position": [200, 300, 100],
+                "shadow": True,
+                "decay": 2,
+            },
+            {
+                "name": "fill_ambient",
+                "type": "areaLight",
+                "color": [0.9, 0.92, 1.0],
+                "intensity": 0.4,
+                "position": [-200, 200, 50],
+                "shadow": False,
+                "decay": 2,
+            },
+            {
+                "name": "rim_edge",
+                "type": "spotLight",
+                "color": [1, 0.98, 0.95],
+                "intensity": 0.6,
+                "position": [0, 250, -200],
+                "shadow": True,
+                "decay": 2,
+            },
         ]
         result = analyze_lighting_layers(lights)
         assert result["score"] >= 80
@@ -444,7 +498,12 @@ class TestEnhancedLighting:
     def test_dramatic_contrast(self):
         lights = [
             {"name": "key_hero", "type": "spotLight", "color": [1, 0.8, 0.6], "intensity": 2.0},
-            {"name": "fill_subtle", "type": "ambientLight", "color": [0.7, 0.75, 0.8], "intensity": 0.2},
+            {
+                "name": "fill_subtle",
+                "type": "ambientLight",
+                "color": [0.7, 0.75, 0.8],
+                "intensity": 0.2,
+            },
         ]
         result = analyze_light_color_temperature(lights)
         assert result["temp_range_k"] > 500
@@ -468,10 +527,8 @@ class TestEnhancedLighting:
         """D-038: names matching no role keyword must land in the
         unclassified bucket instead of raising KeyError."""
         lights = [
-            {"name": "sun", "type": "directionalLight", "color": [1, 0.98, 0.9],
-             "intensity": 1.0},
-            {"name": "pointLight1", "type": "pointLight", "color": [1, 1, 1],
-             "intensity": 0.5},
+            {"name": "sun", "type": "directionalLight", "color": [1, 0.98, 0.9], "intensity": 1.0},
+            {"name": "pointLight1", "type": "pointLight", "color": [1, 1, 1], "intensity": 0.5},
         ]
         result = compute_lighting_quality_score(lights)
         assert "score" in result
@@ -480,12 +537,33 @@ class TestEnhancedLighting:
 class TestLightingWithPosition:
     def test_coverage_spread(self):
         lights = [
-            {"name": "key_a", "type": "spotLight", "color": [1, 1, 1], "intensity": 1.0,
-             "position": [-500, 300, -500], "shadow": True, "decay": 2},
-            {"name": "key_b", "type": "spotLight", "color": [1, 0.95, 0.9], "intensity": 0.8,
-             "position": [500, 300, 500], "shadow": True, "decay": 2},
-            {"name": "fill_c", "type": "areaLight", "color": [0.9, 0.9, 1.0], "intensity": 0.4,
-             "position": [0, 200, 0], "shadow": False, "decay": 2},
+            {
+                "name": "key_a",
+                "type": "spotLight",
+                "color": [1, 1, 1],
+                "intensity": 1.0,
+                "position": [-500, 300, -500],
+                "shadow": True,
+                "decay": 2,
+            },
+            {
+                "name": "key_b",
+                "type": "spotLight",
+                "color": [1, 0.95, 0.9],
+                "intensity": 0.8,
+                "position": [500, 300, 500],
+                "shadow": True,
+                "decay": 2,
+            },
+            {
+                "name": "fill_c",
+                "type": "areaLight",
+                "color": [0.9, 0.9, 1.0],
+                "intensity": 0.4,
+                "position": [0, 200, 0],
+                "shadow": False,
+                "decay": 2,
+            },
         ]
         for l in lights:
             assert "position" in l
@@ -493,8 +571,12 @@ class TestLightingWithPosition:
 
     def test_spot_cone_data(self):
         light = {
-            "name": "spot_hero", "type": "spotLight", "color": [1, 1, 1],
-            "intensity": 1.0, "cone_angle": 45.0, "penumbra": 10.0,
+            "name": "spot_hero",
+            "type": "spotLight",
+            "color": [1, 1, 1],
+            "intensity": 1.0,
+            "cone_angle": 45.0,
+            "penumbra": 10.0,
         }
         assert light["cone_angle"] == 45.0
         assert light["penumbra"] == 10.0
@@ -508,19 +590,53 @@ class TestComputeAestheticScore:
             {"name": "mat_highlight", "color": [0.9, 0.9, 0.9], "object_count": 10},
         ]
         objects = [
-            {"name": "shell", "position": [0, 0, 0], "bbox_size": [1000, 300, 800], "size": 1000,
-             "color": [0.1, 0.1, 0.1], "is_focal": False},
-            {"name": "display_main", "position": [0, 0, 300], "bbox_size": [200, 130, 100], "size": 200,
-             "color": [0.8, 0.2, 0.2], "is_focal": True},
-            {"name": "counter_a", "position": [200, 0, 200], "bbox_size": [150, 90, 60], "size": 150,
-             "color": [0.9, 0.9, 0.9], "is_focal": False},
-            {"name": "aisle_main", "position": [0, 0, 0], "bbox_size": [200, 10, 600], "size": 600,
-             "color": None, "is_focal": False},
+            {
+                "name": "shell",
+                "position": [0, 0, 0],
+                "bbox_size": [1000, 300, 800],
+                "size": 1000,
+                "color": [0.1, 0.1, 0.1],
+                "is_focal": False,
+            },
+            {
+                "name": "display_main",
+                "position": [0, 0, 300],
+                "bbox_size": [200, 130, 100],
+                "size": 200,
+                "color": [0.8, 0.2, 0.2],
+                "is_focal": True,
+            },
+            {
+                "name": "counter_a",
+                "position": [200, 0, 200],
+                "bbox_size": [150, 90, 60],
+                "size": 150,
+                "color": [0.9, 0.9, 0.9],
+                "is_focal": False,
+            },
+            {
+                "name": "aisle_main",
+                "position": [0, 0, 0],
+                "bbox_size": [200, 10, 600],
+                "size": 600,
+                "color": None,
+                "is_focal": False,
+            },
         ]
         bounds = {"min": [-500, 0, -400], "max": [500, 300, 400]}
         lights = [
-            {"name": "key_main", "type": "directionalLight", "color": [1, 0.95, 0.9], "intensity": 1.0},
-            {"name": "fill_ambient", "type": "ambientLight", "color": [0.8, 0.85, 0.9], "intensity": 0.5},
+            {
+                "name": "key_main",
+                "type": "directionalLight",
+                "color": [1, 0.95, 0.9],
+                "intensity": 1.0,
+            },
+            {
+                "name": "fill_ambient",
+                "type": "ambientLight",
+                "color": [0.8, 0.85, 0.9],
+                "intensity": 0.5,
+            },
             {"name": "accent_spot", "type": "spotLight", "color": [1, 0.9, 0.8], "intensity": 0.8},
         ]
 
@@ -547,12 +663,19 @@ class TestComputeAestheticScore:
 # Edge Cases
 # ============================================================
 
+
 class TestEdgeCases:
     def test_zero_size_objects(self):
         """Objects with zero size should not crash."""
         objects = [
-            {"name": "degenerate", "bbox_size": [0, 0, 0], "size": 0,
-             "position": [0, 0, 0], "color": None, "is_focal": False},
+            {
+                "name": "degenerate",
+                "bbox_size": [0, 0, 0],
+                "size": 0,
+                "position": [0, 0, 0],
+                "color": None,
+                "is_focal": False,
+            },
         ]
         result = analyze_visual_weight_balance(objects, {"min": [0, 0, 0], "max": [100, 100, 100]})
         assert "score" in result
@@ -560,8 +683,14 @@ class TestEdgeCases:
     def test_single_object_all_dimensions(self):
         """Single object should not crash any dimension."""
         objects = [
-            {"name": "only", "bbox_size": [100, 100, 100], "size": 100,
-             "position": [50, 50, 50], "color": [0.5, 0.5, 0.5], "is_focal": False},
+            {
+                "name": "only",
+                "bbox_size": [100, 100, 100],
+                "size": 100,
+                "position": [50, 50, 50],
+                "color": [0.5, 0.5, 0.5],
+                "is_focal": False,
+            },
         ]
         bounds = {"min": [0, 0, 0], "max": [100, 100, 100]}
         result = compute_spatial_composition_score(objects, bounds)
@@ -570,9 +699,16 @@ class TestEdgeCases:
     def test_very_large_scene(self):
         """1000 objects should not be too slow."""
         import time
+
         objects = [
-            {"name": f"obj_{i}", "bbox_size": [10, 10, 10], "size": 10,
-             "position": [i % 50 * 20, 0, i // 50 * 20], "color": [0.5, 0.5, 0.5], "is_focal": False}
+            {
+                "name": f"obj_{i}",
+                "bbox_size": [10, 10, 10],
+                "size": 10,
+                "position": [i % 50 * 20, 0, i // 50 * 20],
+                "color": [0.5, 0.5, 0.5],
+                "is_focal": False,
+            }
             for i in range(1000)
         ]
         bounds = {"min": [0, 0, 0], "max": [1000, 100, 400]}

@@ -244,8 +244,11 @@ class TestClientChannel:
         sock = FakeSocket()
         ch = helper.ClientChannel(sock, max_frame_size=256)
         # small request in, big result out -> response collapses to error frame
-        req = {"id": "p", "method": "execute",
-               "params": {"code": "'y' * 500", "result_type": "RAW"}}
+        req = {
+            "id": "p",
+            "method": "execute",
+            "params": {"code": "'y' * 500", "result_type": "RAW"},
+        }
         sock.feed(helper.encode_frame(json.dumps(req).encode()))
         ch.feed_socket()
         resp = json.loads(_decode_all(bytes(sock.written))[0])
@@ -297,9 +300,7 @@ class _Peer:
         self.port = 0
 
     async def start(self):
-        self._server = await asyncio.start_server(
-            self.conn_override or self._conn, "127.0.0.1", 0
-        )
+        self._server = await asyncio.start_server(self.conn_override or self._conn, "127.0.0.1", 0)
         self.port = self._server.sockets[0].getsockname()[1]
 
     async def stop(self):
@@ -422,9 +423,7 @@ class TestQtClientWire:
                 n = int.from_bytes(header, "big")
                 await reader.readexactly(n)
                 # Declare an over-cap frame, send only a tiny body
-                writer.write(
-                    (helper.MAX_FRAME_SIZE + 1).to_bytes(4, "big") + b"{}"
-                )
+                writer.write((helper.MAX_FRAME_SIZE + 1).to_bytes(4, "big") + b"{}")
                 await writer.drain()
             finally:
                 writer.close()
@@ -519,9 +518,7 @@ class TestQtServerIntegration:
             try:
                 reqs = [{"id": f"r{i}", "method": "ping"} for i in range(3)]
                 reqs.append({"id": "h", "method": "health"})
-                blob = b"".join(
-                    helper.encode_frame(json.dumps(r).encode()) for r in reqs
-                )
+                blob = b"".join(helper.encode_frame(json.dumps(r).encode()) for r in reqs)
                 sock.sendall(blob)
                 decoder = helper.FrameDecoder()
                 out = []
@@ -573,9 +570,7 @@ class TestModuleInjectionRouting:
         client = MagicMock()
         client.framed_channel = True
         client.write_module = AsyncMock(return_value="ok")
-        client.execute_code = AsyncMock(
-            return_value=CommandResponse(result=None, error=None)
-        )
+        client.execute_code = AsyncMock(return_value=CommandResponse(result=None, error=None))
         monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
 
         await scene_tools._ensure_module_injected(client, "k-f")
@@ -593,9 +588,7 @@ class TestModuleInjectionRouting:
         client = MagicMock()
         client.framed_channel = False
         client.write_module = AsyncMock()
-        client.execute_code = AsyncMock(
-            return_value=CommandResponse(result=None, error=None)
-        )
+        client.execute_code = AsyncMock(return_value=CommandResponse(result=None, error=None))
         monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
 
         await scene_tools._ensure_module_injected(client, "k-n")
@@ -625,7 +618,8 @@ class TestHeadlessGuard:
 
     def test_no_event_loop_returns_domain_error(self, monkeypatch):
         monkeypatch.setattr(
-            helper, "QCoreApplication",
+            helper,
+            "QCoreApplication",
             SimpleNamespace(instance=staticmethod(lambda: None)),
         )
         monkeypatch.setattr(helper, "_qt_server", None)
@@ -647,11 +641,13 @@ class TestQtSendReceiveDomainCode:
             hdr = await reader.readexactly(helper.FRAME_HEADER_SIZE)
             n = int.from_bytes(hdr, "big")
             await reader.readexactly(n)
-            body = json.dumps({
-                "id": "req-1",
-                "result": None,
-                "error": {"code": "unknown_method", "message": "Unknown method: nope"},
-            }).encode()
+            body = json.dumps(
+                {
+                    "id": "req-1",
+                    "result": None,
+                    "error": {"code": "unknown_method", "message": "Unknown method: nope"},
+                }
+            ).encode()
             writer.write(helper.encode_frame(body))
             await writer.drain()
             writer.close()

@@ -186,9 +186,14 @@ def file(*args, **kwargs):
     sc = _s()
     sc.file_calls.append({"args": args, "kwargs": dict(kwargs)})
     if kwargs.get("query") or kwargs.get("q"):
-        if (kwargs.get("sceneName") or kwargs.get("sn")
-                or kwargs.get("expandName") or kwargs.get("exn")
-                or kwargs.get("absoluteName") or kwargs.get("an")):
+        if (
+            kwargs.get("sceneName")
+            or kwargs.get("sn")
+            or kwargs.get("expandName")
+            or kwargs.get("exn")
+            or kwargs.get("absoluteName")
+            or kwargs.get("an")
+        ):
             return sc.scene_path
         return None
     if kwargs.get("rename"):
@@ -219,8 +224,12 @@ def workspace(**kwargs):
     """Stub cmds.workspace — returns the scene's workspace dir."""
     sc = _s()
     if kwargs.get("query") or kwargs.get("q"):
-        want_dir = (kwargs.get("rootDirectory") or kwargs.get("rd")
-                    or kwargs.get("directory") or kwargs.get("dir"))
+        want_dir = (
+            kwargs.get("rootDirectory")
+            or kwargs.get("rd")
+            or kwargs.get("directory")
+            or kwargs.get("dir")
+        )
         if want_dir:
             return sc.workspace_dir
     return sc.workspace_dir
@@ -230,19 +239,19 @@ def move(x, y=None, z=None, *objects, **kwargs):
     sc = _s()
     if y is None and z is None:
         x, y, z = x
-    for o in (objects or sc.selection):
+    for o in objects or sc.selection:
         sc.resolve(o).t = [x, y, z]
 
 
 def rotate(x, y, z, *objects, **kwargs):
     sc = _s()
-    for o in (objects or sc.selection):
+    for o in objects or sc.selection:
         sc.resolve(o).r = [x, y, z]
 
 
 def scale(x, y, z, *objects, **kwargs):
     sc = _s()
-    for o in (objects or sc.selection):
+    for o in objects or sc.selection:
         sc.resolve(o).s = [x, y, z]
 
 
@@ -308,8 +317,9 @@ def aimConstraint(*args, **kwargs):
         raise RuntimeError("aimConstraint: target cannot be None")
     tnode = sc.resolve(target)
     constrained = sc.resolve(args[1])
-    sc.constraints.append({"target": tnode.name, "constrained": constrained.name,
-                           "kwargs": dict(kwargs)})
+    sc.constraints.append(
+        {"target": tnode.name, "constrained": constrained.name, "kwargs": dict(kwargs)}
+    )
     tp = sc.world_position(tnode)
     cp = sc.world_position(constrained)
     dx, dy, dz = tp[0] - cp[0], tp[1] - cp[1], tp[2] - cp[2]
@@ -551,6 +561,7 @@ def playblast(**kw):
             pass
         return path
     from .fakeqt import png_bytes
+
     w, h = (kw.get("widthHeight") or [640, 480])[:2]
     with open(path, "wb") as fh:
         fh.write(png_bytes(int(w), int(h)))

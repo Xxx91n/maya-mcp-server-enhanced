@@ -1,4 +1,4 @@
-﻿"""Tests for security module."""
+"""Tests for security module."""
 
 from __future__ import annotations
 
@@ -204,6 +204,7 @@ class TestRateLimiter:
         limiter.try_consume("session1")
         assert limiter.get_remaining("session1") == 4
 
+
 # ------------------------------------------------------------
 # T-04: D-018 pipeline primitives
 # ------------------------------------------------------------
@@ -219,11 +220,13 @@ class TestPipelineErrorContract:
 
     def test_rate_limit_error_code(self) -> None:
         from maya_mcp_server.security import RateLimitExceededError
+
         err = RateLimitExceededError("slow down")
         assert str(err).startswith("[rate_limited]")
 
     def test_pattern_blocked_error_code(self) -> None:
         from maya_mcp_server.security import PatternBlockedError
+
         err = PatternBlockedError("nope", suggestion="rephrase")
         assert str(err).startswith("[blocked_pattern]")
         assert "rephrase" in str(err)
@@ -234,18 +237,21 @@ class TestPipelineErrorContract:
 
     def test_gui_session_required_error_code(self) -> None:
         from maya_mcp_server.security import GuiSessionRequiredError
+
         err = GuiSessionRequiredError("headless", suggestion="use a GUI session")
         assert str(err).startswith("[gui_session_required]")
         assert "use a GUI session" in str(err)
 
     def test_capture_empty_error_code(self) -> None:
         from maya_mcp_server.security import CaptureEmptyError
+
         err = CaptureEmptyError("no bytes", suggestion="retry with GUI")
         assert str(err).startswith("[capture_empty]")
         assert "retry with GUI" in str(err)
 
     def test_capture_invalid_error_code(self) -> None:
         from maya_mcp_server.security import InvalidCaptureError
+
         err = InvalidCaptureError("not an image", suggestion="check decoder")
         assert str(err).startswith("[capture_invalid]")
         assert "check decoder" in str(err)
@@ -256,6 +262,7 @@ class TestTokenBucket:
 
     def test_starts_full(self) -> None:
         from maya_mcp_server.security import TokenBucket
+
         b = TokenBucket(capacity=3, refill_per_sec=1)
         assert b.take() and b.take() and b.take()
         assert not b.take()
@@ -263,8 +270,10 @@ class TestTokenBucket:
     def test_refills_over_time(self) -> None:
         import time
         from maya_mcp_server.security import TokenBucket
+
         b = TokenBucket(capacity=2, refill_per_sec=50)
-        b.take(); b.take()
+        b.take()
+        b.take()
         assert not b.take()
         time.sleep(0.05)  # tokens accrue, capped at capacity
         assert b.take()
@@ -273,6 +282,7 @@ class TestTokenBucket:
 
     def test_retry_after_positive_when_empty(self) -> None:
         from maya_mcp_server.security import TokenBucket
+
         b = TokenBucket(capacity=1, refill_per_sec=10)
         b.take()
         wait = b.retry_after()
@@ -299,12 +309,14 @@ class TestScanToolParams:
 
     def test_block_rule_on_code(self) -> None:
         from maya_mcp_server.security import scan_tool_params
+
         w, b = scan_tool_params("execute_code", {"code": "os.system('x')"})
         assert any(h["rule_id"] == "code-os-system" for h in b)
         assert any(h["rule_id"] == "warn-os-exec" for h in w)
 
     def test_traversal_blocked_only_on_filename(self) -> None:
         from maya_mcp_server.security import scan_tool_params
+
         _w, b1 = scan_tool_params("scene_rollback", {"filename": "../x.ma"})
         assert b1 and b1[0]["rule_id"] == "file-traversal"
         _w, b2 = scan_tool_params("scene_inspect", {"target": "../x"})
@@ -312,18 +324,16 @@ class TestScanToolParams:
 
     def test_exclusion_table(self) -> None:
         from maya_mcp_server.security import scan_tool_params
+
         excl = {("code-eval", "execute_code", "code")}
-        _w, b = scan_tool_params(
-            "execute_code", {"code": "eval('1')"}, exclusions=excl
-        )
+        _w, b = scan_tool_params("execute_code", {"code": "eval('1')"}, exclusions=excl)
         assert b == []
-        _w, b2 = scan_tool_params(
-            "write_module", {"code": "eval('1')"}, exclusions=excl
-        )
+        _w, b2 = scan_tool_params("write_module", {"code": "eval('1')"}, exclusions=excl)
         assert b2
 
     def test_non_string_params_ignored(self) -> None:
         from maya_mcp_server.security import scan_tool_params
+
         w, b = scan_tool_params("t", {"port": 1234, "flag": True})
         assert w == [] and b == []
 
@@ -331,21 +341,25 @@ class TestScanToolParams:
 class TestSummarizeParams:
     def test_short_values_verbatim(self) -> None:
         from maya_mcp_server.security import summarize_params
+
         s = summarize_params({"a": 1, "b": "x"})
         assert "a=1" in s and 'b="x"' in s
 
     def test_long_string_hashed_with_preview(self) -> None:
         from maya_mcp_server.security import summarize_params
+
         s = summarize_params({"code": "z" * 500})
         assert "sha:" in s and "(500B" in s
 
     def test_credentials_redacted(self) -> None:
         from maya_mcp_server.security import summarize_params
+
         s = summarize_params({"api_key": "sekret", "note": "hi"})
         assert "sekret" not in s and "<redacted>" in s
 
     def test_capped_at_200(self) -> None:
         from maya_mcp_server.security import summarize_params
+
         s = summarize_params({f"p{i}": "v" * 100 for i in range(20)})
         assert len(s) <= 200
 
@@ -353,49 +367,77 @@ class TestSummarizeParams:
 class TestAuditLogger:
     def _events(self, path):
         import json
+
         return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
 
     def test_writes_jsonl(self, tmp_path) -> None:
         from maya_mcp_server.security import AuditLogger, build_audit_event
+
         log = tmp_path / "sub" / "audit.jsonl"
         audit = AuditLogger(log)
-        audit.record(build_audit_event(
-            session_id="s1", tool_name="t", params={"a": 1},
-            outcome="success", duration_ms=1.5,
-        ))
+        audit.record(
+            build_audit_event(
+                session_id="s1",
+                tool_name="t",
+                params={"a": 1},
+                outcome="success",
+                duration_ms=1.5,
+            )
+        )
         ev = self._events(log)[0]
-        for key in ("event_id", "timestamp", "session_id", "tool_name",
-                    "input_summary", "outcome", "duration_ms", "warnings"):
+        for key in (
+            "event_id",
+            "timestamp",
+            "session_id",
+            "tool_name",
+            "input_summary",
+            "outcome",
+            "duration_ms",
+            "warnings",
+        ):
             assert key in ev, key
 
     def test_rejected_outcome_recorded(self, tmp_path) -> None:
         from maya_mcp_server.security import AuditLogger, build_audit_event
+
         log = tmp_path / "audit.jsonl"
         audit = AuditLogger(log)
-        audit.record(build_audit_event(
-            session_id="s", tool_name="t", params={}, outcome="rejected",
-            duration_ms=0.1,
-            warnings=[{"rule_id": "r", "param": "p", "snippet": "x", "message": "m"}],
-        ))
+        audit.record(
+            build_audit_event(
+                session_id="s",
+                tool_name="t",
+                params={},
+                outcome="rejected",
+                duration_ms=0.1,
+                warnings=[{"rule_id": "r", "param": "p", "snippet": "x", "message": "m"}],
+            )
+        )
         ev = self._events(log)[0]
         assert ev["outcome"] == "rejected"
         assert ev["warnings"][0]["rule_id"] == "r"
 
     def test_rotation(self, tmp_path) -> None:
         from maya_mcp_server.security import AuditLogger, build_audit_event
+
         log = tmp_path / "audit.jsonl"
         audit = AuditLogger(log, max_bytes=200, backup_count=3)
         for _ in range(20):
-            audit.record(build_audit_event(
-                session_id="s", tool_name="t", params={},
-                outcome="success", duration_ms=0.1,
-            ))
+            audit.record(
+                build_audit_event(
+                    session_id="s",
+                    tool_name="t",
+                    params={},
+                    outcome="success",
+                    duration_ms=0.1,
+                )
+            )
         rotated = tmp_path / "audit.jsonl.1"
         assert rotated.exists()
         assert log.exists()
 
     def test_write_failure_non_blocking(self, tmp_path) -> None:
         from maya_mcp_server.security import AuditLogger
+
         audit = AuditLogger(tmp_path / "audit.jsonl")
         blocker = tmp_path / "blocker"
         blocker.write_text("x")  # a FILE where a dir is needed -> mkdir fails
@@ -407,6 +449,7 @@ class TestAuditLogger:
         import os
         import stat
         from maya_mcp_server.security import AuditLogger
+
         log = tmp_path / "audit.jsonl"
         AuditLogger(log).record({"a": 1})
         if os.name != "nt":
@@ -429,7 +472,6 @@ class TestSanitizeErrorMessagePaths:
         msg = "failed: C:\\tmp\\one.ma"
         out = sanitize_error_message(msg)
         assert "C:\\tmp" not in out
-
 
 
 class TestFileTraversalPrecision:
@@ -461,9 +503,7 @@ class TestAuditDualWrite:
     """F-5: a failed JSONL write must not kill the logger sink, and the
     file sink recovers on the next writable attempt (no permanent latch)."""
 
-    def test_failed_write_still_logs_and_recovers(
-        self, tmp_path, caplog
-    ) -> None:
+    def test_failed_write_still_logs_and_recovers(self, tmp_path, caplog) -> None:
         log_path = tmp_path / "audit" / "audit.jsonl"
         audit = AuditLogger(log_path)
         audit.record({"event_id": "e1", "outcome": "success"})

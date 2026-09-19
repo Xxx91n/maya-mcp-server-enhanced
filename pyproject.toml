@@ -33,11 +33,13 @@ dev = [
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.0.0",
     "ruff>=0.1.0",
-    "mypy>=1.0.0",
-    "types-maya-strict",
-    "types-psutil",
+    "mypy==2.1.0",
+    "mypy-baseline==0.7.4",
+    "types-maya-strict==2025.0.6",
+    "types-psutil==7.2.2.20260906",
     "PySide6",
-    "types-PySide6",
+    "types-PySide6==6.10.3.0",
+    "pre-commit>=4.0.0",
 ]
 
 [project.scripts]
@@ -79,3 +81,6 @@ lines-after-imports = 2
 [tool.mypy]
 python_version = "3.10"
 strict = true
+# ratchet pawls (ADR-0017): unused ignores/config entries must surface immediately
+warn_unused_ignores = true
+warn_unused_configs = true

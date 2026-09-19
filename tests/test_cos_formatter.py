@@ -1,4 +1,4 @@
-﻿"""Tests for cos_formatter.py."""
+"""Tests for cos_formatter.py."""
 
 from __future__ import annotations
 
@@ -140,7 +140,13 @@ class TestFormatMeasureCos:
 
     def test_overlap_flag(self):
         """Overlap shown when bbox_overlap is True."""
-        result_data = {"obj_a": "a", "obj_b": "b", "mode": "bbox", "distance": 0, "bbox_overlap": True}
+        result_data = {
+            "obj_a": "a",
+            "obj_b": "b",
+            "mode": "bbox",
+            "distance": 0,
+            "bbox_overlap": True,
+        }
         result = format_measure_cos(result_data)
         assert "[OVERLAP]" in result
 
@@ -166,7 +172,12 @@ class TestFormatAssertCos:
             "passed": False,
             "checked_count": 2,
             "mismatches": [
-                {"object": "wall", "property": "position", "expected": [0, 0, 0], "actual": [10, 0, 0]},
+                {
+                    "object": "wall",
+                    "property": "position",
+                    "expected": [0, 0, 0],
+                    "actual": [10, 0, 0],
+                },
             ],
         }
         result = format_assert_cos(result_data)
@@ -175,7 +186,9 @@ class TestFormatAssertCos:
 
     def test_many_mismatches_truncated(self):
         """Only first 5 mismatches shown."""
-        mismatches = [{"object": f"obj_{i}", "property": "pos", "expected": 0, "actual": i} for i in range(10)]
+        mismatches = [
+            {"object": f"obj_{i}", "property": "pos", "expected": 0, "actual": i} for i in range(10)
+        ]
         result_data = {"passed": False, "checked_count": 10, "mismatches": mismatches}
         result = format_assert_cos(result_data)
         assert "+5 more mismatches" in result
@@ -187,8 +200,20 @@ class TestFormatZoneMapCos:
     def test_basic_zones(self):
         """Zone map formatted correctly."""
         zones = [
-            {"name": "entrance", "object_count": 5, "center": [0, 0, 100], "pattern_matched": "entrance", "objects": ["door", "gate"]},
-            {"name": "display", "object_count": 10, "center": [200, 0, 300], "pattern_matched": "display", "objects": ["shelf_1", "shelf_2"]},
+            {
+                "name": "entrance",
+                "object_count": 5,
+                "center": [0, 0, 100],
+                "pattern_matched": "entrance",
+                "objects": ["door", "gate"],
+            },
+            {
+                "name": "display",
+                "object_count": 10,
+                "center": [200, 0, 300],
+                "pattern_matched": "display",
+                "objects": ["shelf_1", "shelf_2"],
+            },
         ]
         result = format_zone_map_cos(zones)
         assert "ZONES[2]" in result

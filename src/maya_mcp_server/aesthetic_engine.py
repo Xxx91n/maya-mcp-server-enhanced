@@ -38,10 +38,10 @@ HUMAN_AVG_HEIGHT = 170.0
 HUMAN_SHOULDER_WIDTH = 45.0
 
 # Color temperature thresholds (mired values)
-COLOR_TEMP_WARM_THRESHOLD = 3700   # Kelvin - warm white
+COLOR_TEMP_WARM_THRESHOLD = 3700  # Kelvin - warm white
 COLOR_TEMP_NEUTRAL_LOW = 3700
 COLOR_TEMP_NEUTRAL_HIGH = 5000
-COLOR_TEMP_COOL_THRESHOLD = 5000   # Kelvin - cool white
+COLOR_TEMP_COOL_THRESHOLD = 5000  # Kelvin - cool white
 
 # Design rule weights for final score
 DIMENSION_WEIGHTS = {
@@ -56,6 +56,7 @@ DIMENSION_WEIGHTS = {
 # ============================================================
 # Color Theory Analysis
 # ============================================================
+
 
 def rgb_to_hsl(rgb: tuple[float, float, float]) -> tuple[float, float, float]:
     """Convert RGB [0-1] to HSL (H: 0-360, S: 0-1, L: 0-1)."""
@@ -138,11 +139,13 @@ def analyze_60_30_10(
     ratios = []
     for i, c in enumerate(sorted_colors[:5]):
         pct = c["weight"] / total_weight
-        ratios.append({
-            "name": c["name"],
-            "ratio": round(pct, 3),
-            "target": [0.60, 0.30, 0.10][i] if i < 3 else None,
-        })
+        ratios.append(
+            {
+                "name": c["name"],
+                "ratio": round(pct, 3),
+                "target": [0.60, 0.30, 0.10][i] if i < 3 else None,
+            }
+        )
 
     # Score based on how close to 60-30-10
     if len(ratios) >= 3:
@@ -151,7 +154,15 @@ def analyze_60_30_10(
         r10 = abs(ratios[2]["ratio"] - 0.10)
         deviation = (r60 + r30 + r10) / 3
         score = max(0, 100 - deviation * 200)  # 0 deviation = 100, 0.5 deviation = 0
-        compliance = "excellent" if score > 80 else "good" if score > 60 else "fair" if score > 40 else "poor"
+        compliance = (
+            "excellent"
+            if score > 80
+            else "good"
+            if score > 60
+            else "fair"
+            if score > 40
+            else "poor"
+        )
     elif len(ratios) >= 2:
         # Partial compliance with 2 colors
         score = 50
@@ -227,7 +238,9 @@ def analyze_saturation_distribution(
         saturations.append({"name": c["name"], "saturation": round(s, 3), "weight": c["weight"]})
 
     avg_sat = sum(s["saturation"] for s in saturations) / len(saturations)
-    sat_range = max(s["saturation"] for s in saturations) - min(s["saturation"] for s in saturations)
+    sat_range = max(s["saturation"] for s in saturations) - min(
+        s["saturation"] for s in saturations
+    )
 
     # Good design has varied saturation (not all flat or all vivid)
     if sat_range > 0.3:
@@ -422,6 +435,7 @@ def compute_color_theory_score(
 # Spatial Composition Analysis
 # ============================================================
 
+
 def analyze_golden_ratio(
     objects: list[dict],
 ) -> dict[str, Any]:
@@ -455,12 +469,14 @@ def analyze_golden_ratio(
                 total_checked += 1
                 deviation = abs(ratio - PHI)
                 if deviation < 0.15:  # Within 15% of golden ratio
-                    matches.append({
-                        "a": sizes[i]["name"],
-                        "b": sizes[j]["name"],
-                        "ratio": round(ratio, 3),
-                        "deviation": round(deviation, 3),
-                    })
+                    matches.append(
+                        {
+                            "a": sizes[i]["name"],
+                            "b": sizes[j]["name"],
+                            "ratio": round(ratio, 3),
+                            "deviation": round(deviation, 3),
+                        }
+                    )
 
     if total_checked == 0:
         return {"score": 50, "matches": [], "total_pairs": 0}
@@ -511,12 +527,14 @@ def analyze_rule_of_thirds(
         for gx, gz in grid_points:
             dist = math.sqrt((px - gx) ** 2 + (pz - gz) ** 2)
             if dist < tol:
-                aligned.append({
-                    "name": obj["name"],
-                    "grid_point": [round(gx, 1), round(gz, 1)],
-                    "distance": round(dist, 1),
-                    "weight": obj.get("visual_weight", 1),
-                })
+                aligned.append(
+                    {
+                        "name": obj["name"],
+                        "grid_point": [round(gx, 1), round(gz, 1)],
+                        "distance": round(dist, 1),
+                        "weight": obj.get("visual_weight", 1),
+                    }
+                )
                 break
 
     # Score: weighted by visual importance
@@ -635,6 +653,7 @@ def compute_spatial_composition_score(
 # Proportion & Scale Analysis
 # ============================================================
 
+
 def analyze_human_scale_reference(
     objects: list[dict],
 ) -> dict[str, Any]:
@@ -653,35 +672,41 @@ def analyze_human_scale_reference(
         # Display/counter objects should be in comfortable viewing range
         if any(kw in name for kw in ["display", "shelf", "counter", "kiosk", "vitrine"]):
             if by > HUMAN_REACH_HEIGHT:
-                issues.append({
-                    "type": "display_too_high",
-                    "object": obj["name"],
-                    "height": round(by, 1),
-                    "max_recommended": HUMAN_REACH_HEIGHT,
-                    "severity": "warning",
-                })
+                issues.append(
+                    {
+                        "type": "display_too_high",
+                        "object": obj["name"],
+                        "height": round(by, 1),
+                        "max_recommended": HUMAN_REACH_HEIGHT,
+                        "severity": "warning",
+                    }
+                )
                 score -= 5
             elif by < 60:
-                issues.append({
-                    "type": "display_too_low",
-                    "object": obj["name"],
-                    "height": round(by, 1),
-                    "min_recommended": 60,
-                    "severity": "info",
-                })
+                issues.append(
+                    {
+                        "type": "display_too_low",
+                        "object": obj["name"],
+                        "height": round(by, 1),
+                        "min_recommended": 60,
+                        "severity": "info",
+                    }
+                )
                 score -= 2
 
         # Passage widths (aisles, corridors)
         if any(kw in name for kw in ["aisle", "corridor", "path", "passage", "walkway"]):
             if bx < 120:
-                issues.append({
-                    "type": "passage_too_narrow",
-                    "object": obj["name"],
-                    "width": round(bx, 1),
-                    "min_wheelchair": 120,
-                    "min_comfort": 150,
-                    "severity": "error" if bx < 90 else "warning",
-                })
+                issues.append(
+                    {
+                        "type": "passage_too_narrow",
+                        "object": obj["name"],
+                        "width": round(bx, 1),
+                        "min_wheelchair": 120,
+                        "min_comfort": 150,
+                        "severity": "error" if bx < 90 else "warning",
+                    }
+                )
                 score -= 10
 
     return {
@@ -790,6 +815,7 @@ def compute_proportion_scale_score(
 # ============================================================
 # Lighting Quality Analysis
 # ============================================================
+
 
 def classify_light_type(name: str) -> str:
     """Classify light by its role based on naming convention."""
@@ -922,10 +948,14 @@ def compute_lighting_quality_score(
 
     # Layer completeness
     layer_score = 20
-    if layers["key"]: layer_score += 30
-    if layers["fill"]: layer_score += 25
-    if layers["accent"]: layer_score += 15
-    if layers["rim"]: layer_score += 10
+    if layers["key"]:
+        layer_score += 30
+    if layers["fill"]:
+        layer_score += 25
+    if layers["accent"]:
+        layer_score += 15
+    if layers["rim"]:
+        layer_score += 10
     sub_scores["layers"] = min(100, layer_score)
 
     # Three-point validation
@@ -933,10 +963,14 @@ def compute_lighting_quality_score(
     has_fill = len(layers["fill"]) > 0
     has_rim_or_accent = len(layers["rim"]) > 0 or len(layers["accent"]) > 0
     tp_score = 0
-    if has_key: tp_score += 40
-    if has_fill: tp_score += 30
-    if has_rim_or_accent: tp_score += 20
-    if has_key and has_fill and has_rim_or_accent: tp_score += 10
+    if has_key:
+        tp_score += 40
+    if has_fill:
+        tp_score += 30
+    if has_rim_or_accent:
+        tp_score += 20
+    if has_key and has_fill and has_rim_or_accent:
+        tp_score += 10
     sub_scores["three_point"] = min(100, tp_score)
 
     # Fill ratio
@@ -984,11 +1018,16 @@ def compute_lighting_quality_score(
         else:
             sub_scores["temperature"] = 30
         # Mood
-        if avg_temp < 3500: mood = "warm_intimate"
-        elif avg_temp < 4500: mood = "warm_neutral"
-        elif avg_temp < 5500: mood = "neutral"
-        elif avg_temp < 6500: mood = "cool_professional"
-        else: mood = "cool_dramatic"
+        if avg_temp < 3500:
+            mood = "warm_intimate"
+        elif avg_temp < 4500:
+            mood = "warm_neutral"
+        elif avg_temp < 5500:
+            mood = "neutral"
+        elif avg_temp < 6500:
+            mood = "cool_professional"
+        else:
+            mood = "cool_dramatic"
     else:
         sub_scores["temperature"] = 60
         mood = "unknown"
@@ -1015,9 +1054,12 @@ def compute_lighting_quality_score(
         decay = light.get("decay", 0)
         ltype = light.get("type", "")
         if ltype in ("pointLight", "spotLight", "areaLight"):
-            if decay == 2: decay_scores.append(100)
-            elif decay == 1: decay_scores.append(70)
-            else: decay_scores.append(30)
+            if decay == 2:
+                decay_scores.append(100)
+            elif decay == 1:
+                decay_scores.append(70)
+            else:
+                decay_scores.append(30)
         else:
             decay_scores.append(80)
     sub_scores["decay"] = sum(decay_scores) / len(decay_scores) if decay_scores else 50
@@ -1038,9 +1080,14 @@ def compute_lighting_quality_score(
         sub_scores["intensity_dist"] = 30
 
     weights = {
-        "layers": 0.15, "three_point": 0.20, "fill_ratio": 0.15,
-        "shadow_quality": 0.10, "temperature": 0.10, "coverage": 0.10,
-        "decay": 0.10, "intensity_dist": 0.10,
+        "layers": 0.15,
+        "three_point": 0.20,
+        "fill_ratio": 0.15,
+        "shadow_quality": 0.10,
+        "temperature": 0.10,
+        "coverage": 0.10,
+        "decay": 0.10,
+        "intensity_dist": 0.10,
     }
     overall = sum(sub_scores[k] * weights[k] for k in sub_scores)
 
@@ -1115,11 +1162,13 @@ def analyze_sight_lines(
                 obj_size = max(obj["bbox_size"]) * 0.3
                 if dist < obj_size:
                     is_blocked = True
-                    blocked.append({
-                        "focal": focal["name"],
-                        "blocked_by": obj["name"],
-                        "distance_from_entrance": round(t, 1),
-                    })
+                    blocked.append(
+                        {
+                            "focal": focal["name"],
+                            "blocked_by": obj["name"],
+                            "distance_from_entrance": round(t, 1),
+                        }
+                    )
                     break
 
         if not is_blocked:
@@ -1152,35 +1201,49 @@ def analyze_circulation_clarity(
     issues = []
 
     # Find path-related objects
-    path_objects = [o for o in objects if any(
-        kw in o["name"].lower() for kw in ["path", "aisle", "corridor", "walkway", "route", "passage"]
-    )]
+    path_objects = [
+        o
+        for o in objects
+        if any(
+            kw in o["name"].lower()
+            for kw in ["path", "aisle", "corridor", "walkway", "route", "passage"]
+        )
+    ]
 
     if not path_objects:
         score = 40
-        issues.append({"type": "no_designated_paths", "severity": "warning",
-                        "msg": "No path/aisle objects found. Consider naming circulation elements."})
+        issues.append(
+            {
+                "type": "no_designated_paths",
+                "severity": "warning",
+                "msg": "No path/aisle objects found. Consider naming circulation elements.",
+            }
+        )
     else:
         # Check path widths
         for path in path_objects:
             width = min(path["bbox_size"][0], path["bbox_size"][2])
             if width < 90:
-                issues.append({
-                    "type": "path_too_narrow",
-                    "object": path["name"],
-                    "width": round(width, 1),
-                    "min_recommended": 90,
-                    "severity": "error",
-                })
+                issues.append(
+                    {
+                        "type": "path_too_narrow",
+                        "object": path["name"],
+                        "width": round(width, 1),
+                        "min_recommended": 90,
+                        "severity": "error",
+                    }
+                )
                 score -= 10
             elif width < 120:
-                issues.append({
-                    "type": "path_narrow",
-                    "object": path["name"],
-                    "width": round(width, 1),
-                    "recommended": 120,
-                    "severity": "warning",
-                })
+                issues.append(
+                    {
+                        "type": "path_narrow",
+                        "object": path["name"],
+                        "width": round(width, 1),
+                        "recommended": 120,
+                        "severity": "warning",
+                    }
+                )
                 score -= 5
 
     return {
@@ -1232,8 +1295,8 @@ def analyze_visual_rhythm(
         spacings = []
         for i in range(len(positions) - 1):
             dist = math.sqrt(
-                (positions[i + 1][0] - positions[i][0]) ** 2 +
-                (positions[i + 1][2] - positions[i][2]) ** 2
+                (positions[i + 1][0] - positions[i][0]) ** 2
+                + (positions[i + 1][2] - positions[i][2]) ** 2
             )
             spacings.append(dist)
 
@@ -1290,6 +1353,7 @@ def compute_visual_flow_score(
 # Master Aesthetic Score
 # ============================================================
 
+
 def compute_aesthetic_score(
     materials: list[dict],
     objects: list[dict],
@@ -1318,10 +1382,7 @@ def compute_aesthetic_score(
     }
 
     # Weighted overall score
-    overall = sum(
-        dimensions[dim]["score"] * DIMENSION_WEIGHTS[dim]
-        for dim in dimensions
-    )
+    overall = sum(dimensions[dim]["score"] * DIMENSION_WEIGHTS[dim] for dim in dimensions)
 
     # Grade
     if overall >= 90:
@@ -1341,11 +1402,13 @@ def compute_aesthetic_score(
     suggestions = []
     for dim_name, dim_data in sorted(dimensions.items(), key=lambda x: x[1]["score"]):
         if dim_data["score"] < 70:
-            suggestions.append({
-                "dimension": dim_name,
-                "score": dim_data["score"],
-                "priority": "high" if dim_data["score"] < 50 else "medium",
-            })
+            suggestions.append(
+                {
+                    "dimension": dim_name,
+                    "score": dim_data["score"],
+                    "priority": "high" if dim_data["score"] < 50 else "medium",
+                }
+            )
 
     return {
         "overall_score": round(overall, 1),

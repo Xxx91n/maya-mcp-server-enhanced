@@ -544,18 +544,14 @@ class TestAddSession:
         work_client.key = "127.0.0.1:50000"
         config_client.bootstrap = AsyncMock(return_value=work_client)
 
-        mocker.patch(
-            "maya_mcp_server.session_manager.MayaClient", return_value=config_client
-        )
+        mocker.patch("maya_mcp_server.session_manager.MayaClient", return_value=config_client)
 
         result = await session_manager.add_session("127.0.0.1", 7001)
 
         assert result is work_client
         assert session_manager._sessions["127.0.0.1:50000"] is work_client
         assert "127.0.0.1:7001" not in session_manager._sessions
-        assert (
-            session_manager._config_to_session["127.0.0.1:7001"] == "127.0.0.1:50000"
-        )
+        assert session_manager._config_to_session["127.0.0.1:7001"] == "127.0.0.1:50000"
         config_client.connect.assert_called_once()
         config_client.bootstrap.assert_called_once_with(client_type="qt")
         config_client.disconnect.assert_called_once()
@@ -609,9 +605,7 @@ class TestAddSession:
         config_client.key = "127.0.0.1:7001"
         config_client.bootstrap = AsyncMock(side_effect=RuntimeError("boom"))
 
-        mocker.patch(
-            "maya_mcp_server.session_manager.MayaClient", return_value=config_client
-        )
+        mocker.patch("maya_mcp_server.session_manager.MayaClient", return_value=config_client)
 
         with pytest.raises(RuntimeError, match="boom"):
             await session_manager.add_session("127.0.0.1", 7001)
@@ -633,9 +627,7 @@ class TestCodedSessionErrors:
         assert "[session_unavailable]" in str(ei.value)
         assert ei.value.suggestion
 
-    async def test_unknown_session_raises_coded(
-        self, session_manager, mock_client
-    ) -> None:
+    async def test_unknown_session_raises_coded(self, session_manager, mock_client) -> None:
         from maya_mcp_server.security import SessionLookupError
 
         session_manager._sessions["127.0.0.1:50000"] = mock_client
@@ -643,9 +635,7 @@ class TestCodedSessionErrors:
             await session_manager.get_client("127.0.0.1:9999")
         assert ei.value.code == "session_unavailable"
 
-    async def test_ambiguous_sessions_raises_coded(
-        self, session_manager, mock_client
-    ) -> None:
+    async def test_ambiguous_sessions_raises_coded(self, session_manager, mock_client) -> None:
         from maya_mcp_server.security import SessionLookupError
 
         other = MagicMock()
@@ -664,7 +654,6 @@ class TestCodedSessionErrors:
             await initialize_session_manager(client_type="bogus")
         assert ei.value.code == "invalid_input"
         assert "[invalid_input]" in str(ei.value)
-
 
 
 # ============================================================================
@@ -739,9 +728,7 @@ class TestFailedPortsDedup:
             "maya_mcp_server.session_manager.get_maya_listening_ports",
             return_value=[{"address": "127.0.0.1", "port": 7001, "process_id": 1}],
         )
-        probe = mocker.patch.object(
-            mgr, "_probe_port", new_callable=AsyncMock, return_value=None
-        )
+        probe = mocker.patch.object(mgr, "_probe_port", new_callable=AsyncMock, return_value=None)
         await mgr._scan_for_sessions()
         probe.return_value = mock_client
         await mgr._scan_for_sessions()

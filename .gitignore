@@ -17,3 +17,8 @@ Thumbs.db
 .codex_tmp/
 dist_audit/
 .scratch/
+.coverage
+.coverage.*
+htmlcov/
+ruff-report.json
+mypy-report.txt

@@ -98,9 +98,7 @@ def vtools(maya_env, monkeypatch):
     client = VisualExecClient(module)
     manager = MagicMock()
     manager.get_client = AsyncMock(return_value=client)
-    monkeypatch.setattr(
-        "maya_mcp_server.server.get_session_manager", lambda: manager
-    )
+    monkeypatch.setattr("maya_mcp_server.server.get_session_manager", lambda: manager)
     mock_mcp = MagicMock()
     fns = {}
 
@@ -112,9 +110,7 @@ def vtools(maya_env, monkeypatch):
 
     mock_mcp.tool = capture
     register_visual_tools(mock_mcp)
-    yield SimpleNamespace(
-        fns=fns, client=client, manager=manager, env=maya_env, module=module
-    )
+    yield SimpleNamespace(fns=fns, client=client, manager=manager, env=maya_env, module=module)
     _visual_injected.clear()
     sys.modules.pop("_mcp_visual", None)
     sys.modules.pop("maya_mcp_server.visual_module", None)
@@ -128,6 +124,7 @@ def _meta(out):
 # ------------------------------------------------------------
 # Injection trajectory + double headless gate (D-024/D-025)
 # ------------------------------------------------------------
+
 
 class TestInjectionAndGates:
     async def test_first_call_injects_once(self, vtools):
@@ -165,9 +162,7 @@ class TestInjectionAndGates:
     async def test_gui_deps_missing_maps_gui_error(self, vtools, monkeypatch):
         """Extreme headless-ish GUI env: omui/PySide absent -> same code."""
         monkeypatch.setattr(vtools.module, "_omui", None)
-        monkeypatch.setattr(
-            vtools.module, "_IMPORT_ERROR", ImportError("no omui")
-        )
+        monkeypatch.setattr(vtools.module, "_IMPORT_ERROR", ImportError("no omui"))
         out = await vtools.fns["scene_viewport_snapshot"]()
         res = json.loads(out)
         assert res["error"]["code"] == "gui_session_required"
@@ -182,6 +177,7 @@ class TestInjectionAndGates:
 # ------------------------------------------------------------
 # Annotations (D-018 matrix rows)
 # ------------------------------------------------------------
+
 
 class TestAnnotations:
     def test_visual_tools_readonly_idempotent(self):
@@ -198,6 +194,7 @@ class TestAnnotations:
 # ------------------------------------------------------------
 # Snapshot contract (D-023/D-025)
 # ------------------------------------------------------------
+
 
 class TestSnapshotContract:
     async def test_returns_image_and_text_blocks(self, vtools):
@@ -260,6 +257,7 @@ class TestSnapshotContract:
 # ------------------------------------------------------------
 # Preview contract (D-023/D-025/D-026)
 # ------------------------------------------------------------
+
 
 class TestPreviewContract:
     async def test_returns_blocks_with_source(self, vtools):
@@ -422,6 +420,7 @@ class TestPreviewContract:
 # ------------------------------------------------------------
 # Active-panel two-level probe (D-026)
 # ------------------------------------------------------------
+
 
 class TestActivePanelProbe:
     async def test_fallback_when_focus_panel_gone(self, vtools):

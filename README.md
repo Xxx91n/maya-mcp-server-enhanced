@@ -4,7 +4,7 @@
 
 [English](README_en.md) | 中文
 
-[![CI](https://github.com/Xxx91n/mcp-for-maya/actions/workflows/ci.yml/badge.svg)](https://github.com/Xxx91n/mcp-for-maya/actions/workflows/ci.yml)
+[![CI](https://github.com/Xxx91n/mcp-for-maya/actions/workflows/ci.yml/badge.svg)](https://github.com/Xxx91n/mcp-for-maya/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/mcp-for-maya?cacheSeconds=300)](https://pypi.org/project/mcp-for-maya/)
 
 ## 这是什么
 
@@ -50,17 +50,19 @@
 ### 1. 安装
 
 ```bash
-# 用 uv 直接从 git 安装（当前可用）
+# PyPI 安装（推荐）
+pip install mcp-for-maya
+
+# 或 uvx 免安装直跑
+uvx mcp-for-maya
+
+# 备选：用 uv 直接从 git 安装
 uv tool install git+https://github.com/Xxx91n/mcp-for-maya.git
 
 # 或克隆源码安装
 git clone https://github.com/Xxx91n/mcp-for-maya.git
 cd mcp-for-maya
 pip install -e .
-
-# PyPI 即将推出（0.1.0 发布中）：
-# pip install mcp-for-maya
-# uvx mcp-for-maya
 ```
 
 > [!NOTE]
@@ -119,11 +121,11 @@ Codex `~/.codex/config.toml`：
 ```toml
 [mcp_servers.maya]
 command = "uvx"
-args = ["--from", "git+https://github.com/Xxx91n/mcp-for-maya.git", "mcp-for-maya"]
+args = ["mcp-for-maya"]
 tool_timeout_sec = 120
 ```
 
-源码安装则改用 `command = "python"`、`args = ["-m", "maya_mcp_server"]`，并在 `env` 中把 `PYTHONPATH` 指到 `<repo>/src`。PyPI 发布后 `args` 可简化为 `["mcp-for-maya"]`（免 `--from`）。
+走 git 源则 `args = ["--from", "git+https://github.com/Xxx91n/mcp-for-maya.git", "mcp-for-maya"]`。源码安装改用 `command = "python"`、`args = ["-m", "maya_mcp_server"]`，并在 `env` 中把 `PYTHONPATH` 指到 `<repo>/src`。
 
 ### 4. 开始使用
 

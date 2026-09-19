@@ -205,9 +205,7 @@ def validate_session_key(session_key: str | None) -> str | None:
         if not (0 < port < 65536):
             raise ValueError
     except ValueError:
-        raise InputValidationError(
-            f"Invalid port in session key '{session_key}': must be 1-65535"
-        )
+        raise InputValidationError(f"Invalid port in session key '{session_key}': must be 1-65535")
 
     return session_key
 
@@ -235,9 +233,7 @@ class TokenBucket:
 
     def refill(self) -> None:
         now = time.monotonic()
-        self.tokens = min(
-            self.capacity, self.tokens + (now - self.updated) * self.refill_per_sec
-        )
+        self.tokens = min(self.capacity, self.tokens + (now - self.updated) * self.refill_per_sec)
         self.updated = now
 
     def take(self, n: float = 1.0) -> bool:
@@ -579,19 +575,14 @@ class AuditLogger:
             self._warned = False
         except Exception as e:
             if not self._warned:
-                logger.warning(
-                    f"audit log write failed ({self.path}): {e}"
-                )
+                logger.warning(f"audit log write failed ({self.path}): {e}")
                 self._warned = True
         # Dual-write to the application logger (independent of the JSONL file)
         logger.info("audit %s", line)
 
     def _append(self, line: str) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if (
-            self.path.exists()
-            and self.path.stat().st_size + len(line) + 1 > self.max_bytes
-        ):
+        if self.path.exists() and self.path.stat().st_size + len(line) + 1 > self.max_bytes:
             self._rotate()
         fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         try:

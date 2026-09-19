@@ -116,7 +116,7 @@ class SessionManager:
                 break
             except Exception as e:
                 consecutive_errors += 1
-                backoff = min(self.scan_interval * (2 ** consecutive_errors), max_backoff)
+                backoff = min(self.scan_interval * (2**consecutive_errors), max_backoff)
                 logger.error(
                     f"Error in background scan (attempt {consecutive_errors}): {e}. "
                     f"Backing off {backoff:.1f}s"
@@ -302,8 +302,7 @@ class SessionManager:
                 raise SessionLookupError(
                     "No Maya sessions available",
                     suggestion=(
-                        "call add_session(host, port) first, "
-                        "or maya_setup_guide() for setup"
+                        "call add_session(host, port) first, or maya_setup_guide() for setup"
                     ),
                 )
             elif len(self._sessions) == 1:
@@ -320,8 +319,7 @@ class SessionManager:
                 raise SessionLookupError(
                     f"Session {session_key} not found",
                     suggestion=(
-                        "call list_sessions() for connected sessions, "
-                        "or add_session() to connect"
+                        "call list_sessions() for connected sessions, or add_session() to connect"
                     ),
                 )
             client = maybe_client
@@ -383,8 +381,6 @@ class SessionManager:
         logger.info(f"Added session: {config_key} -> {new_client.key}")
 
         return new_client
-
-
 
     async def check_session_health(self, session_key: str) -> bool:
         """Check if a specific session is still responsive.

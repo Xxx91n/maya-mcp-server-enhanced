@@ -1,0 +1,24 @@
+# Thin pre-commit set (ADR-0017 / D-044 / D-045).
+# Local:  pip install -e ".[dev]" && pre-commit install && pre-commit run --all-files
+# CI fallback: lint job in .github/workflows/ci.yml (guards --no-verify pushes).
+# Hook rev upkeep: dependabot pre-commit ecosystem (monthly) or manual
+#   `pre-commit autoupdate` — always through human review, never pre-commit.ci.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: debug-statements
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20 # aligned with ci.yml (uvx ruff@0.15.20) and the dev venv
+    hooks:
+      - id: ruff-check
+        # Legacy frozen-budget debt files (122 errors as of 2026-09-19): excluded so
+        # --all-files stays green while the per-rule budget gate ratchets them down
+        # in .github/ruff-baseline.json. Drop entries as each file reaches zero.
+        exclude: ^(src/maya_mcp_server/(maya_scene_module|scene_tools|aesthetic_engine)\.py|tests/(test_aesthetic_engine|test_scene_tools|test_pipeline|test_security|test_connection_guide|test_cos_formatter|test_mayapy_smoke|test_scene_cache)\.py)$
+      - id: ruff-format

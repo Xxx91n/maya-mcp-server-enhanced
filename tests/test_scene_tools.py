@@ -123,17 +123,20 @@ class TestMayaSceneModule:
     def test_module_source_exists(self):
         """Module source file exists."""
         from maya_mcp_server.scene_tools import _MODULE_SOURCE
+
         assert _MODULE_SOURCE.exists()
 
     def test_module_source_is_valid_python(self):
         """Module source is valid Python (syntax check)."""
         from maya_mcp_server.scene_tools import _MODULE_SOURCE
+
         source = _MODULE_SOURCE.read_text(encoding="utf-8-sig")  # Handle BOM
         compile(source, str(_MODULE_SOURCE), "exec")
 
     def test_module_has_required_functions(self):
         """Module defines all required functions."""
         from maya_mcp_server.scene_tools import _MODULE_SOURCE
+
         source = _MODULE_SOURCE.read_text(encoding="utf-8-sig")
         required = [
             "def get_scene_graph(",
@@ -155,9 +158,24 @@ class TestCosFormatterIntegration:
         """CoS formatter handles realistic scene data."""
         scene = {
             "objects": [
-                {"n": "store_shell", "t": "mesh", "p": [0, 0, 300], "b": [-500, -10, 0, 500, 10, 600]},
-                {"n": "entrance_door", "t": "mesh", "p": [0, 0, 500], "b": [-100, -5, 490, 100, 5, 510]},
-                {"n": "kitty_figure", "t": "mesh", "p": [0, 0, 300], "b": [-30, 0, 270, 30, 60, 330]},
+                {
+                    "n": "store_shell",
+                    "t": "mesh",
+                    "p": [0, 0, 300],
+                    "b": [-500, -10, 0, 500, 10, 600],
+                },
+                {
+                    "n": "entrance_door",
+                    "t": "mesh",
+                    "p": [0, 0, 500],
+                    "b": [-100, -5, 490, 100, 5, 510],
+                },
+                {
+                    "n": "kitty_figure",
+                    "t": "mesh",
+                    "p": [0, 0, 300],
+                    "b": [-30, 0, 270, 30, 60, 330],
+                },
             ],
             "stats": {"total": 3, "by_type": {"mesh": 3}},
             "unit": "cm",
@@ -186,6 +204,3 @@ class TestCosFormatterIntegration:
         result = format_measure_cos(result_data)
         assert "45.5" in result
         assert "clearance" in result
-
-
-

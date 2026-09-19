@@ -165,11 +165,13 @@ class MBoundingBox:
         """The 8 bbox corners — the ONLY correct way to get a world AABB."""
         out = []
         for i in range(8):
-            out.append(MPoint(
-                self.min.x if i & 1 else self.max.x,
-                self.min.y if i & 2 else self.max.y,
-                self.min.z if i & 4 else self.max.z,
-            ))
+            out.append(
+                MPoint(
+                    self.min.x if i & 1 else self.max.x,
+                    self.min.y if i & 2 else self.max.y,
+                    self.min.z if i & 4 else self.max.z,
+                )
+            )
         return out
 
     def __repr__(self):

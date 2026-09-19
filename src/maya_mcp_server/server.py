@@ -152,9 +152,7 @@ async def list_sessions() -> list[SessionInfo]:
     manager = get_session_manager()
     sessions = await manager.list_sessions()
     if not sessions:
-        logger.info(
-            "No Maya sessions found. Call maya_setup_guide() for connection help."
-        )
+        logger.info("No Maya sessions found. Call maya_setup_guide() for connection help.")
     return sessions
 
 
@@ -321,9 +319,7 @@ async def execute_code(
         # Coded exceptions keep their [code] prefix via .message.
         raw = getattr(e, "message", str(e))
         if isinstance(e, PipelineError):
-            raise type(e)(
-                sanitize_error_message(raw), suggestion=e.suggestion
-            ) from e
+            raise type(e)(sanitize_error_message(raw), suggestion=e.suggestion) from e
         raise type(e)(sanitize_error_message(raw)) from e
 
     # Fetch any buffered output and store it in the client
@@ -444,8 +440,7 @@ async def initialize_session_manager(
         resolved_type = ClientType(client_type)
     except ValueError:
         raise InputValidationError(
-            f"Invalid client_type {client_type!r}: must be one of "
-            f"{[t.value for t in ClientType]}"
+            f"Invalid client_type {client_type!r}: must be one of {[t.value for t in ClientType]}"
         )
     _session_manager = SessionManager(
         scan_interval=scan_interval,

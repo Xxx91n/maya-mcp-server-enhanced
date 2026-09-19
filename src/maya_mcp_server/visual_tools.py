@@ -94,27 +94,21 @@ async def _exec_visual(client: Any, code: str) -> Any:
 def _validate_format(format: str) -> str:
     fmt = str(format).lower()
     if fmt not in ("jpeg", "png"):
-        raise InputValidationError(
-            f"invalid format {format!r}: must be 'jpeg' or 'png'"
-        )
+        raise InputValidationError(f"invalid format {format!r}: must be 'jpeg' or 'png'")
     return fmt
 
 
 def _validate_quality(quality: int) -> int:
     q = int(quality)
     if not 1 <= q <= 100:
-        raise InputValidationError(
-            f"invalid quality {quality!r}: must be 1-100"
-        )
+        raise InputValidationError(f"invalid quality {quality!r}: must be 1-100")
     return q
 
 
 def _validate_max_size(max_size: int) -> int:
     m = int(max_size)
     if m < 16:
-        raise InputValidationError(
-            f"invalid max_size {max_size!r}: must be >= 16 pixels"
-        )
+        raise InputValidationError(f"invalid max_size {max_size!r}: must be >= 16 pixels")
     return m
 
 
@@ -139,28 +133,19 @@ def _check_payload(result: dict[str, Any], fmt: str) -> bytes:
     try:
         raw = base64.b64decode(b64, validate=True)
     except (binascii.Error, ValueError) as e:
-        raise InvalidCaptureError(
-            f"capture payload is not valid base64: {e}"
-        ) from e
+        raise InvalidCaptureError(f"capture payload is not valid base64: {e}") from e
     if not raw:
         raise CaptureEmptyError(
             "visual capture produced zero bytes",
-            suggestion=(
-                "headless playblast silently writes empty files; "
-                "retry on a GUI session"
-            ),
+            suggestion=("headless playblast silently writes empty files; retry on a GUI session"),
         )
     magic = _MAGIC.get(fmt)
     if magic and not raw.startswith(magic):
-        raise InvalidCaptureError(
-            f"capture payload magic mismatch for format {fmt!r}"
-        )
+        raise InvalidCaptureError(f"capture payload magic mismatch for format {fmt!r}")
     return raw
 
 
-def _mixed_result(
-    result: dict[str, Any], raw: bytes, session_key: str, fmt: str
-) -> list[Any]:
+def _mixed_result(result: dict[str, Any], raw: bytes, session_key: str, fmt: str) -> list[Any]:
     """Frozen v1.0 return contract: [ImageContent, TextContent] (D-025)."""
     meta: dict[str, Any] = {
         "session": session_key,
@@ -233,9 +218,7 @@ def register_visual_tools(mcp: Any) -> None:
         await _ensure_visual_injected(client, session_key)
         result = await _exec_visual(
             client,
-            _visual_call(
-                "viewport_snapshot", max_size=m, format=fmt, quality=q
-            ),
+            _visual_call("viewport_snapshot", max_size=m, format=fmt, quality=q),
         )
         if isinstance(result, dict) and "error" in result:
             return json.dumps(result, indent=2)
