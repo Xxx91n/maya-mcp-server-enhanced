@@ -59,7 +59,7 @@ docs/
 ├── workflows/ci.yml       # lint (ruff budget gate) + test matrix ubuntu/windows x 3.10/3.x
 ├── workflows/release.yml  # tag v* -> test -> build -> publish (trusted publisher; env: pypi)
 ├── dependabot.yml         # weekly github-actions bumps, minor+patch grouped
-├── ruff-baseline.json     # frozen lint budget {"src":N,"tests":M} — ratchet down only
+├── ruff-baseline.json     # frozen lint budget {"src":{"RULE":N},"tests":{...}} — per-rule ratchet down only (T-10b/D-044)
 └── scripts/check_ruff_budget.py  # budget comparator used by the lint job
 ```
 
